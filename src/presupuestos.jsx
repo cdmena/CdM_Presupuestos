@@ -89,7 +89,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   v1.43.3 (27 Mayo 2026) - Pastilla siempre visible (solo icono User) hasta login OK
 //   v1.43.2 (27 Mayo 2026) - Usuario por defecto vacío; pastilla solo se ve tras login OK
 // ─────────────────────────────────────────────────────────────────────
-import * as XLSX from "xlsx"; // En CodeSandbox cambiar a "xlsx-js-style" para que aplique colores
+import * as XLSX from "xlsx-js-style"; // En CodeSandbox cambiar a "xlsx-js-style" para que aplique colores
 import {
   FileText, FolderOpen, Download, Upload, Printer, BarChart3, Palette,
   Grid3x3, Search, Eraser, MoreHorizontal, Calculator, Link2,
