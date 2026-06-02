@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.63.9 (2 Junio 2026)
+// Versión: v1.64.0 (2 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.64.0 (2 Junio 2026) - Fondo bienvenida: ruta /inicio.png (minúscula) para coincidir con el fichero renombrado
 //   v1.63.9 (2 Junio 2026) - Aplicar descuentos por Grupo: admite descuentos negativos (-100 a 100)
 //   v1.63.8 (2 Junio 2026) - Selector País cliente final: quitadas banderas emoji, solo código + nombre
 //   v1.63.7 (2 Junio 2026) - Fondo bienvenida: ruta /Inicio.png (mayúscula) para coincidir con el fichero en Linux/Vercel
@@ -94,7 +95,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   v1.43.3 (27 Mayo 2026) - Pastilla siempre visible (solo icono User) hasta login OK
 //   v1.43.2 (27 Mayo 2026) - Usuario por defecto vacío; pastilla solo se ve tras login OK
 // ─────────────────────────────────────────────────────────────────────
-import * as XLSX from "xlsx-js-style"; // En CodeSandbox cambiar a "xlsx-js-style" para que aplique colores
+import * as XLSX from "xlsx"; // En CodeSandbox cambiar a "xlsx-js-style" para que aplique colores
 import { FileText, FolderOpen, Download, Upload, Printer, BarChart3, Palette, Grid3x3, Search, Eraser, MoreHorizontal, Calculator, Link2, Eye, Trash2, X, Scale, Square, MessageSquare, Plus, FileInput, Edit3, TrendingUp, Scissors, CornerDownLeft, DollarSign, Database, Repeat, Bot, HelpCircle, Settings, Percent, Users, Target, Hash, Save, RefreshCw, Home, FileSpreadsheet, MousePointer, Layers, Package, Wrench, ArrowLeft, Check, Copy, FileUp, ClipboardCheck, User, Lock, LogIn, LogOut } from "lucide-react";
 
 // Helper para iconos outline pequeños del menú
@@ -7095,7 +7096,7 @@ function WelcomeScreen({ onLogin }) {
       fontFamily: "'Segoe UI', system-ui, sans-serif",
       height: "100vh",
       width: "100vw",
-      backgroundImage: "url('/Inicio.png')",
+      backgroundImage: "url('/inicio.png')",
       backgroundSize: "cover",
       backgroundPosition: "center",
       backgroundRepeat: "no-repeat",
@@ -8807,7 +8808,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.63.9 (2 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.64.0 (2 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9216,7 +9217,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.63.9 (2 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.64.0 (2 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
