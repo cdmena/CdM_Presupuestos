@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.64.0 (2 Junio 2026)
+// Versión: v1.65.0 (2 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,9 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.65.0 (2 Junio 2026) - Gestión Clientes: campo Provincia como desplegable con autocompletado (datalist), muestra nombre y guarda id
+//   v1.64.2 (2 Junio 2026) - Crear SimpleQuote: quitada la línea "Indicamos que el cliente es..."
+//   v1.64.1 (2 Junio 2026) - Crear SimpleQuote: añade "De: <email contacto>" al final del cuerpo si el presupuesto tiene contacto
 //   v1.64.0 (2 Junio 2026) - Fondo bienvenida: ruta /inicio.png (minúscula) para coincidir con el fichero renombrado
 //   v1.63.9 (2 Junio 2026) - Aplicar descuentos por Grupo: admite descuentos negativos (-100 a 100)
 //   v1.63.8 (2 Junio 2026) - Selector País cliente final: quitadas banderas emoji, solo código + nombre
@@ -4815,7 +4818,7 @@ const CLIENTE_COLS = [
   { key: "direccion",   label: "Dirección",    width: 220 },
   { key: "poblacion",   label: "Población",    width: 150 },
   { key: "cp",          label: "C.P.",         width: 70  },
-  { key: "idprovincia", label: "Id Provincia", width: 90, type: "number" },
+  { key: "idprovincia", label: "Provincia", width: 170, type: "provincia" },
 ];
 
 // ── Diálogo Gestionar Contactos ──
@@ -5274,11 +5277,27 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
   const [editValue, setEditValue] = useState("");
   const [confirmGuardar, setConfirmGuardar] = useState(false);
   const [guardando, setGuardando] = useState(false);
+  const [provincias, setProvincias] = useState([]); // [{id, provincia, acronimo, cp}]
 
   // ID temporal para clientes nuevos (negativos para distinguir)
   const nextTempId = useRef(-1);
 
   useEffect(() => { cargar(); }, []);
+
+  // Cargar provincias para el desplegable del campo idprovincia
+  useEffect(() => {
+    fetch(`${API_URL}/provincias/`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => { if (Array.isArray(data)) setProvincias(data); })
+      .catch(() => {});
+  }, []);
+
+  // Helper: nombre de provincia a partir de su id
+  const nombreProvincia = (id) => {
+    if (id == null || id === "") return "";
+    const p = provincias.find(pv => String(pv.id) === String(id));
+    return p ? p.provincia : "";
+  };
 
   const cargar = async () => {
     setCargando(true); setError(null);
@@ -5321,17 +5340,35 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
 
   // Edición de celda
   const iniciarEdicion = (id, key) => {
-    if (CLIENTE_COLS.find(c => c.key === key)?.readonly) return;
+    const col = CLIENTE_COLS.find(c => c.key === key);
+    if (col?.readonly) return;
     const cliente = clientes.find(c => c.id === id);
-    setEditingCell({ id, key });
-    setEditValue(String(cliente?.[key] ?? ""));
+    if (col?.type === "provincia") {
+      // Precargar el NOMBRE de la provincia (no el id) para editar/buscar
+      setEditingCell({ id, key });
+      setEditValue(nombreProvincia(cliente?.[key]));
+    } else {
+      setEditingCell({ id, key });
+      setEditValue(String(cliente?.[key] ?? ""));
+    }
   };
 
   const guardarCelda = () => {
     if (!editingCell) return;
     const col = CLIENTE_COLS.find(c => c.key === editingCell.key);
     let valor = editValue;
-    if (col?.type === "number") {
+    if (col?.type === "provincia") {
+      // editValue contiene el nombre escrito/elegido; buscamos el id correspondiente
+      const txt = String(valor).trim().toLowerCase();
+      if (!txt) {
+        valor = null;
+      } else {
+        // coincidencia exacta primero, luego "empieza por"
+        let prov = provincias.find(p => String(p.provincia).toLowerCase() === txt);
+        if (!prov) prov = provincias.find(p => String(p.provincia).toLowerCase().startsWith(txt));
+        valor = prov ? prov.id : null;
+      }
+    } else if (col?.type === "number") {
       const n = parseFloat(String(valor).replace(",", "."));
       valor = isNaN(n) ? null : Math.round(n);
     } else if (valor === "") {
@@ -5473,17 +5510,35 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
                     {CLIENTE_COLS.map(col => {
                       const isEditing = editingCell?.id === c.id && editingCell?.key === col.key;
                       const valor = c[col.key];
-                      const display = isNuevo && col.key === "id" ? "NUEVO" : (valor ?? "");
+                      let display;
+                      if (isNuevo && col.key === "id") display = "NUEVO";
+                      else if (col.type === "provincia") display = nombreProvincia(valor);
+                      else display = (valor ?? "");
                       return (
                         <td key={col.key}
                           onDoubleClick={() => !col.readonly && iniciarEdicion(c.id, col.key)}
                           style={{ padding: 0, width: col.width, minWidth: col.width, maxWidth: col.width, border: "1px solid #e2e8f0", cursor: col.readonly ? "default" : "cell", background: col.readonly ? "#f8fafc" : "inherit" }}>
                           {isEditing ? (
-                            <input autoFocus value={editValue}
-                              onChange={e => setEditValue(e.target.value)}
-                              onBlur={guardarCelda}
-                              onKeyDown={e => { if (e.key === "Enter") guardarCelda(); if (e.key === "Escape") setEditingCell(null); }}
-                              style={{ width: "100%", border: "none", outline: "none", padding: "5px 8px", fontSize: 12, background: "#fff", textAlign: col.type === "number" ? "right" : "left" }} />
+                            col.type === "provincia" ? (
+                              <>
+                                <input autoFocus value={editValue}
+                                  list="lista-provincias"
+                                  placeholder="Escribe para buscar..."
+                                  onChange={e => setEditValue(e.target.value)}
+                                  onBlur={guardarCelda}
+                                  onKeyDown={e => { if (e.key === "Enter") guardarCelda(); if (e.key === "Escape") setEditingCell(null); }}
+                                  style={{ width: "100%", border: "none", outline: "none", padding: "5px 8px", fontSize: 12, background: "#fff" }} />
+                                <datalist id="lista-provincias">
+                                  {provincias.map(p => <option key={p.id} value={p.provincia} />)}
+                                </datalist>
+                              </>
+                            ) : (
+                              <input autoFocus value={editValue}
+                                onChange={e => setEditValue(e.target.value)}
+                                onBlur={guardarCelda}
+                                onKeyDown={e => { if (e.key === "Enter") guardarCelda(); if (e.key === "Escape") setEditingCell(null); }}
+                                style={{ width: "100%", border: "none", outline: "none", padding: "5px 8px", fontSize: 12, background: "#fff", textAlign: col.type === "number" ? "right" : "left" }} />
+                            )
                           ) : (
                             <div style={{ padding: "5px 8px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: col.type === "number" || col.key === "id" ? "right" : "left", color: col.readonly ? (isNuevo ? "#16a34a" : "#94a3b8") : "#1e293b", fontWeight: col.key === "id" ? 600 : 400 }}>
                               {display}
@@ -8261,18 +8316,17 @@ export default function App() {
       // Cuerpo: indicamos cliente (razón social) + tabla de productos PD/PE/E del presupuesto.
       (async () => {
         try {
-          // Obtener razón social del cliente actual
-          let razonSocial = "";
-          if (presupuesto.idcliente) {
+          // Obtener email del contacto del presupuesto (a la atención de), si existe
+          let emailContacto = "";
+          if (presupuesto.alaatencion) {
             try {
-              const r = await fetch(`${API_URL}/clientes/${presupuesto.idcliente}`);
-              if (r.ok) {
-                const cli = await r.json();
-                razonSocial = cli.razonsocial || cli.nombrecomun || "";
+              const rc = await fetch(`${API_URL}/contactos/${presupuesto.alaatencion}`);
+              if (rc.ok) {
+                const cont = await rc.json();
+                emailContacto = String(cont.email || "").trim();
               }
             } catch {}
           }
-          if (!razonSocial) razonSocial = presupuesto.cliente || "(cliente no definido)";
 
           // Filtrar líneas de producto (PD, PE, E) con cantidad y referencia
           const productos = rows.filter(r => ["PD", "PE", "E"].includes(r.naturaleza))
@@ -8294,7 +8348,10 @@ export default function App() {
           const lineaCab = "Cantidad".padStart(anchoCant) + sep + "Referencia";
           const lineaSep = "-".repeat(anchoCant) + sep + "-".repeat(20);
           const lineasTabla = filas.map(f => f.cant.padStart(anchoCant) + sep + f.ref).join("\n");
-          const cuerpo = `Indicamos que el cliente es: ${razonSocial}\n\n${lineaCab}\n${lineaSep}\n${lineasTabla}\n`;
+          let cuerpo = `${lineaCab}\n${lineaSep}\n${lineasTabla}\n`;
+          if (emailContacto) {
+            cuerpo += `\nDe: ${emailContacto}\n`;
+          }
 
           const payload = {
             destinatario: (configVarias.sqDestinatario || "").trim() || "simplequote-rfq.industry@siemens.com",
@@ -8808,7 +8865,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.64.0 (2 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.65.0 (2 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9217,7 +9274,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.64.0 (2 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.65.0 (2 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
