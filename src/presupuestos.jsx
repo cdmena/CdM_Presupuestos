@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.63.4 (2 Junio 2026)
+// Versión: v1.63.6 (2 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.63.6 (2 Junio 2026) - Eliminado alias 'Image as ImageIcon' sin usar del import lucide-react
+//   v1.63.5 (2 Junio 2026) - Limpieza de imports/variables sin usar (iconos lucide, parsePastedTSV) para build Vercel
 //   v1.63.4 (2 Junio 2026) - Fix build: setEstilosLocal→setDraft y state resultado faltante en GuardarElementoDialog
 //   v1.63.3 (2 Junio 2026) - Quitados comentarios eslint-disable que rompían el build en Vercel (react-scripts)
 //   v1.63.2 (2 Junio 2026) - Selector País cliente final: emoji de bandera a partir del código ISO2
@@ -65,7 +67,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   v1.52.2 (30 Mayo 2026) - Editor de celda: rows auto según contenido (saltos de línea + ancho)
 //   v1.52.1 (30 Mayo 2026) - Fix ancho auto Neto Unit./Pos. (columnas calc): formateado real con € y %
 //   v1.52.0 (30 Mayo 2026) - Celdas → "Juntar celdas en una": concatena texto de varias celdas en la primera
-//   v1.51.4 (29 Mayo 2026) - Fix: paste de números con separador de miles ("3.948,45 €" → 3948.45)
+//   v1.51.4 (29 Mayo 2026) - Fix: paste de números con separador de miles ("3.948, 45 €" → 3948.45)
 //   v1.51.3 (29 Mayo 2026) - Presupuesto en blanco se crea con 50 filas en vez de 10
 //   v1.51.2 (29 Mayo 2026) - Buscar datos por Referencia: fuerza naturaleza=PD y cantidad mínima 1
 //   v1.51.1 (29 Mayo 2026) - Mantenimiento Grupos Descuento: selector SÍ/NO en vez de checkbox (estilo Tarifas)
@@ -90,17 +92,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   v1.43.2 (27 Mayo 2026) - Usuario por defecto vacío; pastilla solo se ve tras login OK
 // ─────────────────────────────────────────────────────────────────────
 import * as XLSX from "xlsx-js-style"; // En CodeSandbox cambiar a "xlsx-js-style" para que aplique colores
-import {
-  FileText, FolderOpen, Download, Upload, Printer, BarChart3, Palette,
-  Grid3x3, Search, Eraser, MoreHorizontal, Calculator, Link2,
-  Eye, Trash2, X, Scale, Square, MessageSquare, Plus, FileInput,
-  FileX, Edit3, Inbox, Euro, TrendingUp, Scissors, CornerDownLeft,
-  Folder, DollarSign, Database, Repeat, Bot, Image as ImageIcon,
-  HelpCircle, Settings, Percent, Users, Target, Hash, ChevronRight,
-  Save, RefreshCw, Home, FileSpreadsheet, MousePointer, Layers,
-  Package, Wrench, ArrowLeft, Check, Copy, ListPlus, FileUp,
-  ClipboardCheck, User, Lock, LogIn, LogOut
-} from "lucide-react";
+import { FileText, FolderOpen, Download, Upload, Printer, BarChart3, Palette, Grid3x3, Search, Eraser, MoreHorizontal, Calculator, Link2, Eye, Trash2, X, Scale, Square, MessageSquare, Plus, FileInput, Edit3, TrendingUp, Scissors, CornerDownLeft, DollarSign, Database, Repeat, Bot, HelpCircle, Settings, Percent, Users, Target, Hash, Save, RefreshCw, Home, FileSpreadsheet, MousePointer, Layers, Package, Wrench, ArrowLeft, Check, Copy, FileUp, ClipboardCheck, User, Lock, LogIn, LogOut } from "lucide-react";
 
 // Helper para iconos outline pequeños del menú
 const Icon = ({ as: Component, size = 14, color = "currentColor" }) => Component ? (
@@ -208,11 +200,6 @@ function matchTarifaHeaders(headers) {
     else errores.push(`Columna "${header}" no se reconoce`);
   });
   return { mapping, errores };
-}
-
-function parsePastedTSV(text) {
-  const lines = text.split(/\r?\n/).filter(l => l.trim());
-  return lines.map(l => l.includes("\t") ? l.split("\t") : l.includes(";") ? l.split(";") : l.split(","));
 }
 
 function TarifasSection({ setStatus }) {
@@ -8828,7 +8815,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.63.4 (2 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.63.6 (2 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9237,7 +9224,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.63.4 (2 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.63.6 (2 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
