@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.63.6 (2 Junio 2026)
+// Versión: v1.63.9 (2 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,9 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.63.9 (2 Junio 2026) - Aplicar descuentos por Grupo: admite descuentos negativos (-100 a 100)
+//   v1.63.8 (2 Junio 2026) - Selector País cliente final: quitadas banderas emoji, solo código + nombre
+//   v1.63.7 (2 Junio 2026) - Fondo bienvenida: ruta /Inicio.png (mayúscula) para coincidir con el fichero en Linux/Vercel
 //   v1.63.6 (2 Junio 2026) - Eliminado alias 'Image as ImageIcon' sin usar del import lucide-react
 //   v1.63.5 (2 Junio 2026) - Limpieza de imports/variables sin usar (iconos lucide, parsePastedTSV) para build Vercel
 //   v1.63.4 (2 Junio 2026) - Fix build: setEstilosLocal→setDraft y state resultado faltante en GuardarElementoDialog
@@ -91,7 +94,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   v1.43.3 (27 Mayo 2026) - Pastilla siempre visible (solo icono User) hasta login OK
 //   v1.43.2 (27 Mayo 2026) - Usuario por defecto vacío; pastilla solo se ve tras login OK
 // ─────────────────────────────────────────────────────────────────────
-import * as XLSX from "xlsx-js-style"; // En CodeSandbox cambiar a "xlsx-js-style" para que aplique colores
+import * as XLSX from "xlsx"; // En CodeSandbox cambiar a "xlsx-js-style" para que aplique colores
 import { FileText, FolderOpen, Download, Upload, Printer, BarChart3, Palette, Grid3x3, Search, Eraser, MoreHorizontal, Calculator, Link2, Eye, Trash2, X, Scale, Square, MessageSquare, Plus, FileInput, Edit3, TrendingUp, Scissors, CornerDownLeft, DollarSign, Database, Repeat, Bot, HelpCircle, Settings, Percent, Users, Target, Hash, Save, RefreshCw, Home, FileSpreadsheet, MousePointer, Layers, Package, Wrench, ArrowLeft, Check, Copy, FileUp, ClipboardCheck, User, Lock, LogIn, LogOut } from "lucide-react";
 
 // Helper para iconos outline pequeños del menú
@@ -4331,8 +4334,8 @@ function AplicarDescuentosDialog({ rows, onClose, onApply }) {
   const aplicar = () => {
     if (!seleccionada) return;
     const dto = parseFloat(String(nuevoDto).replace(",", "."));
-    if (isNaN(dto) || dto < 0 || dto > 100) {
-      alert("Introduce un descuento válido entre 0 y 100");
+    if (isNaN(dto) || dto < -100 || dto > 100) {
+      alert("Introduce un descuento válido entre -100 y 100 (negativo = recargo)");
       return;
     }
     // Aplica a las líneas con ese grupo descuento Y ese descuento actual
@@ -6726,17 +6729,6 @@ function DonutChart({ data, total, onHover, onLeave }) {
 // Calcular el año fiscal (del 1 Octubre del año N-1 al 30 Septiembre del año N)
 // Si la fecha actual está entre Oct-Dic → año fiscal = año natural + 1
 // Si está entre Ene-Sep → año fiscal = año natural
-// Convierte un código ISO2 de país (ej. "ES") en su emoji de bandera (🇪🇸)
-// usando los Regional Indicator Symbols. Devuelve "" si el código no es válido.
-function banderaEmoji(iso2) {
-  const cc = String(iso2 || "").trim().toUpperCase();
-  if (cc.length !== 2 || !/^[A-Z]{2}$/.test(cc)) return "";
-  const base = 0x1F1E6; // 'A' regional indicator
-  const cp1 = base + (cc.charCodeAt(0) - 65);
-  const cp2 = base + (cc.charCodeAt(1) - 65);
-  return String.fromCodePoint(cp1, cp2);
-}
-
 function getAnoFiscal(fecha) {
   const d = fecha || new Date();
   const año = d.getFullYear();
@@ -7103,7 +7095,7 @@ function WelcomeScreen({ onLogin }) {
       fontFamily: "'Segoe UI', system-ui, sans-serif",
       height: "100vh",
       width: "100vw",
-      backgroundImage: "url('/inicio.png')",
+      backgroundImage: "url('/Inicio.png')",
       backgroundSize: "cover",
       backgroundPosition: "center",
       backgroundRepeat: "no-repeat",
@@ -8815,7 +8807,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.63.6 (2 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.63.9 (2 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9224,7 +9216,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.63.6 (2 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.63.9 (2 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
@@ -9386,7 +9378,7 @@ export default function App() {
             style={{ width: 180, padding: "4px 8px", borderRadius: 4, border: "1px solid #cbd5e1", fontSize: 12, color: "#1e293b", background: "#f8fafc", cursor: "pointer" }}>
             <option value="">— Seleccionar —</option>
             {paisesList.map(p => (
-              <option key={p.id} value={p.id}>{banderaEmoji(p.codigo_iso2)} {p.codigo_iso2} - {p.pais}</option>
+              <option key={p.id} value={p.id}>{p.codigo_iso2} - {p.pais}</option>
             ))}
           </select>
         </div>
