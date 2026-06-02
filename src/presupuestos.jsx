@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.65.0 (2 Junio 2026)
+// Versión: v1.65.1 (2 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.65.1 (2 Junio 2026) - Fix Gestión Clientes: datalist provincias único (no duplicado por celda) + reset selección tras guardar
 //   v1.65.0 (2 Junio 2026) - Gestión Clientes: campo Provincia como desplegable con autocompletado (datalist), muestra nombre y guarda id
 //   v1.64.2 (2 Junio 2026) - Crear SimpleQuote: quitada la línea "Indicamos que el cliente es..."
 //   v1.64.1 (2 Junio 2026) - Crear SimpleQuote: añade "De: <email contacto>" al final del cuerpo si el presupuesto tiene contacto
@@ -5399,8 +5400,12 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
       if (!res.ok) throw new Error("Error " + res.status);
       await res.json();
       setStatus && setStatus(`${cambios.length} cambio${cambios.length > 1 ? "s" : ""} guardado${cambios.length > 1 ? "s" : ""} correctamente`, "success");
-      await cargar();
+      // Limpiar estados de selección/edición: los ids temporales ya no existen tras recargar
+      setSeleccionado(null);
+      setEditingCell(null);
+      setEditValue("");
       setConfirmGuardar(false);
+      await cargar();
     } catch (e) {
       setError(e.message);
       setStatus && setStatus("Error guardando cambios: " + e.message, "error");
@@ -5412,6 +5417,11 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }}>
       <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "95%", maxWidth: 1280, maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+
+        {/* Datalist único para autocompletar provincias */}
+        <datalist id="lista-provincias">
+          {provincias.map(p => <option key={p.id} value={p.provincia} />)}
+        </datalist>
 
         {/* Cabecera */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, borderBottom: "1px solid #e2e8f0", paddingBottom: 12, flexShrink: 0 }}>
@@ -5520,18 +5530,13 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
                           style={{ padding: 0, width: col.width, minWidth: col.width, maxWidth: col.width, border: "1px solid #e2e8f0", cursor: col.readonly ? "default" : "cell", background: col.readonly ? "#f8fafc" : "inherit" }}>
                           {isEditing ? (
                             col.type === "provincia" ? (
-                              <>
-                                <input autoFocus value={editValue}
-                                  list="lista-provincias"
-                                  placeholder="Escribe para buscar..."
-                                  onChange={e => setEditValue(e.target.value)}
-                                  onBlur={guardarCelda}
-                                  onKeyDown={e => { if (e.key === "Enter") guardarCelda(); if (e.key === "Escape") setEditingCell(null); }}
-                                  style={{ width: "100%", border: "none", outline: "none", padding: "5px 8px", fontSize: 12, background: "#fff" }} />
-                                <datalist id="lista-provincias">
-                                  {provincias.map(p => <option key={p.id} value={p.provincia} />)}
-                                </datalist>
-                              </>
+                              <input autoFocus value={editValue}
+                                list="lista-provincias"
+                                placeholder="Escribe para buscar..."
+                                onChange={e => setEditValue(e.target.value)}
+                                onBlur={guardarCelda}
+                                onKeyDown={e => { if (e.key === "Enter") guardarCelda(); if (e.key === "Escape") setEditingCell(null); }}
+                                style={{ width: "100%", border: "none", outline: "none", padding: "5px 8px", fontSize: 12, background: "#fff" }} />
                             ) : (
                               <input autoFocus value={editValue}
                                 onChange={e => setEditValue(e.target.value)}
@@ -8865,7 +8870,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.65.0 (2 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.65.1 (2 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9274,7 +9279,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.65.0 (2 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.65.1 (2 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
