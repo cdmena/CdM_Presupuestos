@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.67.2 (3 Junio 2026)
+// Versión: v1.68.0 (3 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.68.0 (3 Junio 2026) - Clientes: nuevas columnas nif(varchar) y telefono1; ifa ahora integer; cp integer. UI + importación Excel
 //   v1.67.2 (3 Junio 2026) - Mantenimiento Clientes/Contactos: log de progreso detallado siempre visible (estilo Tarifas)
 //   v1.67.1 (3 Junio 2026) - Mantenimiento Clientes/Contactos: selector "Actualizar existentes" con el mismo estilo toggle que Tarifas
 //   v1.67.0 (3 Junio 2026) - Mantenimiento BD: apartados "Mantenimiento tabla Clientes" y "Contactos" (importar Excel + actualizar SI/NO + log)
@@ -2236,10 +2237,12 @@ function MantenimientoSection({ setStatus }) {
           columnas: [
             { claves: ["nombre comun", "nombrecomun", "nombre común", "nombre"], destino: "nombrecomun", label: "Nombre común", obligatoria: true },
             { claves: ["razon social", "razonsocial", "razón social"], destino: "razonsocial", label: "Razón social", obligatoria: false },
-            { claves: ["nif", "ifa", "cif"], destino: "ifa", label: "NIF", obligatoria: false },
+            { claves: ["nif", "cif"], destino: "nif", label: "NIF", obligatoria: false },
+            { claves: ["ifa"], destino: "ifa", label: "IFA", obligatoria: false },
             { claves: ["direccion", "dirección"], destino: "direccion", label: "Dirección", obligatoria: false },
             { claves: ["poblacion", "población"], destino: "poblacion", label: "Población", obligatoria: false },
-            { claves: ["cp", "codigo postal", "código postal"], destino: "cp", label: "CP", obligatoria: false },
+            { claves: ["cp", "codigo postal", "código postal", "c.p."], destino: "cp", label: "CP", obligatoria: false },
+            { claves: ["telefono", "teléfono", "telefono1", "tlf", "tel"], destino: "telefono1", label: "Teléfono", obligatoria: false },
             { claves: ["provincia"], destino: "_provincia_nombre", label: "Provincia", obligatoria: false },
           ],
           cargarContexto: async () => {
@@ -2264,13 +2267,21 @@ function MantenimientoSection({ setStatus }) {
               idprovincia = prov ? prov.id : null;
               if (!prov) addLog(`Fila ${nFila}: provincia "${datos._provincia_nombre}" no encontrada, se deja vacía`, "warning");
             }
+            // cp e ifa son INTEGER en BD → convertir o null
+            const toInt = (v) => {
+              if (v == null || String(v).trim() === "") return null;
+              const n = parseInt(String(v).replace(/[^0-9-]/g, ""), 10);
+              return isNaN(n) ? null : n;
+            };
             const body = {
               nombrecomun: datos.nombrecomun || null,
               razonsocial: datos.razonsocial || null,
-              ifa: datos.ifa || null,
+              nif: datos.nif || null,
+              ifa: toInt(datos.ifa),
               direccion: datos.direccion || null,
               poblacion: datos.poblacion || null,
-              cp: datos.cp || null,
+              cp: toInt(datos.cp),
+              telefono1: datos.telefono1 || null,
               idprovincia,
             };
             // Buscar existente por nombre común (case-insensitive)
@@ -5186,13 +5197,15 @@ function LeerPresupuestosDialog({ onClose, onCargar, setStatus }) {
 // ── Diálogo Gestión de Clientes ──
 const CLIENTE_COLS = [
   { key: "id",          label: "ID",           width: 70,  readonly: true },
-  { key: "razonsocial", label: "Razón Social", width: 220 },
-  { key: "nombrecomun", label: "Nombre Común", width: 200 },
-  { key: "ifa",         label: "NIF/CIF",      width: 110 },
-  { key: "direccion",   label: "Dirección",    width: 220 },
-  { key: "poblacion",   label: "Población",    width: 150 },
-  { key: "cp",          label: "C.P.",         width: 70  },
-  { key: "idprovincia", label: "Provincia", width: 170, type: "provincia" },
+  { key: "razonsocial", label: "Razón Social", width: 200 },
+  { key: "nombrecomun", label: "Nombre Común", width: 180 },
+  { key: "nif",         label: "NIF",          width: 100 },
+  { key: "ifa",         label: "IFA",          width: 90,  type: "number" },
+  { key: "direccion",   label: "Dirección",    width: 200 },
+  { key: "poblacion",   label: "Población",    width: 140 },
+  { key: "cp",          label: "C.P.",         width: 70,  type: "number" },
+  { key: "telefono1",   label: "Teléfono",     width: 120 },
+  { key: "idprovincia", label: "Provincia",    width: 160, type: "provincia" },
 ];
 
 // ── Diálogo Gestionar Contactos ──
@@ -9324,7 +9337,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.67.2 (3 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.68.0 (3 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9733,7 +9746,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.67.2 (3 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.68.0 (3 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
