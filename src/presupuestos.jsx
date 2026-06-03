@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.68.2 (3 Junio 2026)
+// Versión: v1.68.3 (3 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.68.3 (3 Junio 2026) - Mantenimiento Clientes/Contactos: recuadro "Mapeo de columnas detectado" con tags verde/rojo (estilo Tarifas)
 //   v1.68.2 (3 Junio 2026) - Import XLSX desde "xlsx-js-style" (coincide con package.json y aplica estilos en exportación Excel)
 //   v1.68.1 (3 Junio 2026) - Import Clientes: razón social O nombre común (al menos uno); busca por razón social; si solo razón social → nombre común = razón social
 //   v1.68.0 (3 Junio 2026) - Clientes: nuevas columnas nif(varchar) y telefono1; ifa ahora integer; cp integer. UI + importación Excel
@@ -1608,10 +1609,27 @@ function ImportTablaSection({ setStatus, config }) {
         {fileData && <p style={{ fontSize: 11, color: "#16a34a", margin: 0 }}>✓ {fileData.origen} ({fileData.rows.length} filas)</p>}
       </div>
 
-      {/* Errores de mapeo */}
-      {erroresMapeo.length > 0 && (
-        <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, padding: "8px 12px", marginBottom: 12 }}>
-          {erroresMapeo.map((e, i) => <p key={i} style={{ fontSize: 12, color: "#dc2626", margin: "2px 0" }}>⚠ {e}</p>)}
+      {/* Mapeo de columnas detectado (estilo Tarifas) */}
+      {fileData && (
+        <div style={{ marginBottom: 12, padding: "10px 12px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 6 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#1e3a5f", marginBottom: 6 }}>
+            Mapeo de columnas detectado <span style={{ color: "#64748b", fontWeight: 400 }}>({fileData.rows.length} filas en "{fileData.origen}")</span>:
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {fileData.headers.map((h, i) => (
+              <div key={i} style={{ fontSize: 11, padding: "3px 8px", borderRadius: 4, background: mapping[i] ? "#dcfce7" : "#fee2e2", border: mapping[i] ? "1px solid #86efac" : "1px solid #fca5a5", color: mapping[i] ? "#14532d" : "#991b1b" }}>
+                <strong>{h}</strong> {mapping[i] ? "→ " + mapping[i] : "(no reconocida)"}
+              </div>
+            ))}
+          </div>
+          {erroresMapeo.length > 0 && (
+            <div style={{ marginTop: 8, padding: "6px 10px", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 4, fontSize: 11, color: "#991b1b" }}>
+              <strong>Errores:</strong>
+              <ul style={{ margin: "4px 0 0 16px", padding: 0 }}>
+                {erroresMapeo.map((e, i) => <li key={i}>{e}</li>)}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 
@@ -9366,7 +9384,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.68.2 (3 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.68.3 (3 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9775,7 +9793,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.68.2 (3 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.68.3 (3 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
