@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.65.1 (2 Junio 2026)
+// Versión: v1.66.0 (2 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.66.0 (2 Junio 2026) - Gestión Clientes: botón Borrar cliente (comprueba uso, confirma, DELETE); nuevos sin guardar se descartan local
 //   v1.65.1 (2 Junio 2026) - Fix Gestión Clientes: datalist provincias único (no duplicado por celda) + reset selección tras guardar
 //   v1.65.0 (2 Junio 2026) - Gestión Clientes: campo Provincia como desplegable con autocompletado (datalist), muestra nombre y guarda id
 //   v1.64.2 (2 Junio 2026) - Crear SimpleQuote: quitada la línea "Indicamos que el cliente es..."
@@ -5279,6 +5280,9 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
   const [confirmGuardar, setConfirmGuardar] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [provincias, setProvincias] = useState([]); // [{id, provincia, acronimo, cp}]
+  const [confirmBorrarCliente, setConfirmBorrarCliente] = useState(null); // {id, nombre} | null
+  const [borrandoCliente, setBorrandoCliente] = useState(false);
+  const [comprobandoUsoCliente, setComprobandoUsoCliente] = useState(false);
 
   // ID temporal para clientes nuevos (negativos para distinguir)
   const nextTempId = useRef(-1);
@@ -5388,6 +5392,59 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
     setSeleccionado(copia.id);
   };
 
+  const comprobarYBorrarCliente = async () => {
+    if (!seleccionado) return;
+    const cli = clientes.find(c => c.id === seleccionado);
+    if (!cli) return;
+    const nombre = cli.nombrecomun || cli.razonsocial || `Cliente ${cli.id}`;
+    // Si es un cliente nuevo sin guardar (id negativo), se elimina de la lista local sin tocar BD
+    if (cli.id < 0) {
+      setClientes(cs => cs.filter(c => c.id !== cli.id));
+      setSeleccionado(null);
+      setStatus && setStatus(`Cliente nuevo "${nombre}" descartado`, "info");
+      return;
+    }
+    setComprobandoUsoCliente(true);
+    setStatus && setStatus(`Comprobando uso de "${nombre}"...`, "working");
+    try {
+      const res = await fetch(`${API_URL}/clientes/${cli.id}/uso`);
+      if (res.ok) {
+        const data = await res.json();
+        if (!data.borrable) {
+          setStatus && setStatus(`No se puede borrar "${nombre}": está referenciado en ${data.en_presupuestos || 0} presupuesto(s) y ${data.en_contactos || 0} contacto(s).`, "error");
+          return;
+        }
+      }
+      // Si el endpoint de uso no existe (404), seguimos igualmente y dejamos que el DELETE decida
+      setConfirmBorrarCliente({ id: cli.id, nombre });
+    } catch (e) {
+      // Si falla la comprobación, permitimos intentar el borrado igualmente
+      setConfirmBorrarCliente({ id: cli.id, nombre });
+    } finally {
+      setComprobandoUsoCliente(false);
+    }
+  };
+
+  const borrarClienteConfirmado = async () => {
+    if (!confirmBorrarCliente) return;
+    setBorrandoCliente(true);
+    try {
+      const res = await fetch(`${API_URL}/clientes/${confirmBorrarCliente.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.detail || "HTTP " + res.status);
+      }
+      setStatus && setStatus(`Cliente "${confirmBorrarCliente.nombre}" borrado`, "success");
+      setConfirmBorrarCliente(null);
+      setSeleccionado(null);
+      await cargar();
+    } catch (e) {
+      setStatus && setStatus("Error borrando cliente: " + e.message, "error");
+    } finally {
+      setBorrandoCliente(false);
+    }
+  };
+
   const guardarTodo = async () => {
     setGuardando(true); setError(null);
     setStatus && setStatus(`Guardando ${cambios.length} cambio${cambios.length > 1 ? "s" : ""} en la base de datos...`, "working");
@@ -5437,6 +5494,10 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
           <button onClick={copiarCliente} disabled={!seleccionado}
             style={{ padding: "6px 14px", fontSize: 12, borderRadius: 6, border: "1px solid #cbd5e1", background: seleccionado ? "#fff" : "#fafafa", color: seleccionado ? "#1e293b" : "#cbd5e1", cursor: seleccionado ? "pointer" : "default" }}>
             <BtnContent icon={Copy}>Copiar cliente</BtnContent>
+          </button>
+          <button onClick={comprobarYBorrarCliente} disabled={!seleccionado || comprobandoUsoCliente}
+            style={{ padding: "6px 14px", fontSize: 12, borderRadius: 6, border: "1px solid #fecaca", background: seleccionado && !comprobandoUsoCliente ? "#fff" : "#fafafa", color: seleccionado && !comprobandoUsoCliente ? "#dc2626" : "#cbd5e1", cursor: seleccionado && !comprobandoUsoCliente ? "pointer" : "default" }}>
+            <BtnContent icon={Trash2} iconColor={seleccionado && !comprobandoUsoCliente ? "#dc2626" : "#cbd5e1"}>Borrar cliente</BtnContent>
           </button>
           <button onClick={cargar} style={{ padding: "6px 12px", fontSize: 12, borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer" }}><BtnContent icon={RefreshCw}>Refrescar</BtnContent></button>
           <div style={{ flex: 1 }} />
@@ -5599,6 +5660,27 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
                 <button onClick={guardarTodo} disabled={guardando}
                   style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: "#16a34a", color: "#fff", cursor: guardando ? "default" : "pointer", fontSize: 13, fontWeight: 600 }}>
                   <BtnContent icon={guardando ? RefreshCw : Save} iconColor="#fff">{guardando ? "Guardando..." : "Sí, guardar"}</BtnContent>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {confirmBorrarCliente && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100000 }}>
+            <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", maxWidth: 440, boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <Icon as={Trash2} size={24} color="#dc2626" />
+                <h3 style={{ fontSize: 15, fontWeight: 700, color: "#991b1b", margin: 0 }}>Borrar cliente</h3>
+              </div>
+              <p style={{ fontSize: 13, color: "#475569", lineHeight: 1.6, margin: "0 0 16px" }}>
+                ¿Seguro que quieres borrar el cliente <strong>{confirmBorrarCliente.nombre}</strong>? Esta acción no se puede deshacer.
+              </p>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setConfirmBorrarCliente(null)} disabled={borrandoCliente} style={{ padding: "7px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13 }}><BtnContent icon={X}>Cancelar</BtnContent></button>
+                <button onClick={borrarClienteConfirmado} disabled={borrandoCliente}
+                  style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: "#dc2626", color: "#fff", cursor: borrandoCliente ? "default" : "pointer", fontSize: 13, fontWeight: 600 }}>
+                  <BtnContent icon={borrandoCliente ? RefreshCw : Trash2} iconColor="#fff">{borrandoCliente ? "Borrando..." : "Sí, borrar"}</BtnContent>
                 </button>
               </div>
             </div>
@@ -8870,7 +8952,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.65.1 (2 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.66.0 (2 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9279,7 +9361,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.65.1 (2 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.66.0 (2 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
