@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.66.0 (2 Junio 2026)
+// Versión: v1.67.2 (3 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,9 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.67.2 (3 Junio 2026) - Mantenimiento Clientes/Contactos: log de progreso detallado siempre visible (estilo Tarifas)
+//   v1.67.1 (3 Junio 2026) - Mantenimiento Clientes/Contactos: selector "Actualizar existentes" con el mismo estilo toggle que Tarifas
+//   v1.67.0 (3 Junio 2026) - Mantenimiento BD: apartados "Mantenimiento tabla Clientes" y "Contactos" (importar Excel + actualizar SI/NO + log)
 //   v1.66.0 (2 Junio 2026) - Gestión Clientes: botón Borrar cliente (comprueba uso, confirma, DELETE); nuevos sin guardar se descartan local
 //   v1.65.1 (2 Junio 2026) - Fix Gestión Clientes: datalist provincias único (no duplicado por celda) + reset selección tras guardar
 //   v1.65.0 (2 Junio 2026) - Gestión Clientes: campo Provincia como desplegable con autocompletado (datalist), muestra nombre y guarda id
@@ -1444,6 +1447,227 @@ function MantenimientoFamiliaDialog({ onClose, setStatus }) {
   );
 }
 
+// ── Sección reutilizable: importar/actualizar una tabla desde Excel ──
+// config = {
+//   titulo, endpoint, icono, color,
+//   columnas: [{ claves:[alias...], destino, label, obligatoria, tipo }],
+//   buscarExistente: (fila, registros) => registroExistente | null,
+//   construirNuevo: (datos) => bodyParaPOST,
+//   etiquetaRegistro: (datos) => "texto",
+// }
+function ImportTablaSection({ setStatus, config }) {
+  const [fileData, setFileData] = useState(null);   // { headers, rows, origen }
+  const [mapping, setMapping] = useState({});        // idxColumna -> destino
+  const [erroresMapeo, setErroresMapeo] = useState([]);
+  const [log, setLog] = useState([]);
+  const [procesando, setProcesando] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [sobreescribir, setSobreescribir] = useState(true);
+  const logRef = useRef(null);
+  const stopRequested = useRef(false);
+
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [log]);
+
+  const addLog = (texto, tipo = "info") => {
+    setLog(l => [...l, { texto, tipo, hora: new Date().toLocaleTimeString("es-ES") }]);
+  };
+
+  // Mapea cabeceras del Excel a destinos según los alias de cada columna
+  const mapearCabeceras = (headers) => {
+    const map = {};
+    headers.forEach((h, idx) => {
+      const hNorm = String(h || "").trim().toLowerCase();
+      if (!hNorm) return;
+      for (const col of config.columnas) {
+        if (col.claves.some(a => a.toLowerCase() === hNorm)) {
+          map[idx] = col.destino;
+          break;
+        }
+      }
+    });
+    return map;
+  };
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+    if (aoa.length === 0) { setErroresMapeo(["El fichero está vacío"]); return; }
+    const headers = aoa[0].map(h => String(h || "").trim());
+    const rows = aoa.slice(1).filter(r => r.some(c => String(c || "").trim() !== ""));
+    const map = mapearCabeceras(headers);
+    const destinos = Object.values(map);
+    const errores = [];
+    config.columnas.filter(c => c.obligatoria).forEach(c => {
+      if (!destinos.includes(c.destino)) errores.push(`Falta la columna obligatoria "${c.label}"`);
+    });
+    setFileData({ headers, rows, origen: file.name });
+    setMapping(map);
+    setErroresMapeo(errores);
+    setLog([]);
+  };
+
+  const onDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  };
+
+  const procesar = async () => {
+    if (!fileData || erroresMapeo.length > 0 || procesando) return;
+    stopRequested.current = false;
+    setProcesando(true);
+    setLog([]);
+    setStatus && setStatus(`Procesando ${config.titulo}...`, "working");
+
+    const idxPorDestino = {};
+    Object.entries(mapping).forEach(([idx, destino]) => { idxPorDestino[destino] = Number(idx); });
+
+    addLog(`Fichero "${fileData.origen}" — ${fileData.rows.length} filas. Columnas: ${Object.values(mapping).join(", ")}`, "info");
+
+    // Cargar registros existentes y datos auxiliares
+    let contexto = {};
+    try {
+      contexto = await config.cargarContexto ? await config.cargarContexto() : {};
+    } catch (e) {
+      addLog("AVISO cargando datos auxiliares: " + e.message, "warning");
+    }
+
+    let nuevos = 0, actualizados = 0, omitidos = 0, errores = 0;
+
+    for (let i = 0; i < fileData.rows.length; i++) {
+      if (stopRequested.current) {
+        addLog(`⏹ Detenido por el usuario en la fila ${i + 1}`, "warning");
+        break;
+      }
+      const row = fileData.rows[i];
+      // Construir objeto datos a partir de columnas mapeadas
+      const datos = {};
+      Object.entries(idxPorDestino).forEach(([destino, idx]) => {
+        const val = String(row[idx] ?? "").trim();
+        if (val !== "") datos[destino] = val;
+      });
+
+      // Validar obligatorias por fila
+      const faltan = config.columnas.filter(c => c.obligatoria && !datos[c.destino]);
+      if (faltan.length > 0) {
+        addLog(`Fila ${i + 1}: faltan campos obligatorios (${faltan.map(c => c.label).join(", ")}), se omite`, "warning");
+        errores++;
+        continue;
+      }
+
+      try {
+        const resultado = await config.procesarFila(datos, contexto, sobreescribir, addLog, i + 1);
+        if (resultado === "nuevo") nuevos++;
+        else if (resultado === "actualizado") actualizados++;
+        else if (resultado === "omitido") omitidos++;
+        else if (resultado === "error") errores++;
+      } catch (e) {
+        addLog(`Fila ${i + 1}: ERROR ${e.message}`, "error");
+        errores++;
+      }
+    }
+
+    addLog(`Terminado: ${nuevos} nuevo(s), ${actualizados} actualizado(s), ${omitidos} omitido(s), ${errores} error(es)`, "success");
+    setStatus && setStatus(`${config.titulo}: ${nuevos} nuevos, ${actualizados} actualizados`, "success");
+    setProcesando(false);
+  };
+
+  return (
+    <div style={{ marginBottom: 20, padding: "14px 18px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: "#171717", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+        <Icon as={config.icono} size={16} color={config.color || "#2563eb"} /> {config.titulo}
+      </h3>
+      <p style={{ fontSize: 12, color: "#525252", marginBottom: 12, lineHeight: 1.5 }}>
+        {config.descripcion}
+      </p>
+
+      {/* Zona de arrastrar fichero */}
+      <div
+        onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+        style={{ border: `2px dashed ${dragOver ? "#2563eb" : "#cbd5e1"}`, borderRadius: 8, padding: "18px", textAlign: "center", background: dragOver ? "#eff6ff" : "#f8fafc", marginBottom: 12 }}>
+        <Icon as={Upload} size={20} color="#94a3b8" />
+        <p style={{ fontSize: 12, color: "#64748b", margin: "6px 0" }}>
+          Arrastra aquí el fichero Excel o
+          <label style={{ color: "#2563eb", cursor: "pointer", fontWeight: 600 }}>
+            {" "}selecciónalo
+            <input type="file" accept=".xlsx,.xls" style={{ display: "none" }}
+              onChange={e => handleFile(e.target.files[0])} />
+          </label>
+        </p>
+        {fileData && <p style={{ fontSize: 11, color: "#16a34a", margin: 0 }}>✓ {fileData.origen} ({fileData.rows.length} filas)</p>}
+      </div>
+
+      {/* Errores de mapeo */}
+      {erroresMapeo.length > 0 && (
+        <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, padding: "8px 12px", marginBottom: 12 }}>
+          {erroresMapeo.map((e, i) => <p key={i} style={{ fontSize: 12, color: "#dc2626", margin: "2px 0" }}>⚠ {e}</p>)}
+        </div>
+      )}
+
+      {/* Selector sobreescribir + botón */}
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <label style={{ fontSize: 12, color: "#171717", fontWeight: 500 }}>Actualizar existentes:</label>
+          <div style={{ display: "inline-flex", border: "1px solid #d4d4d4", borderRadius: 6, overflow: "hidden" }}>
+            <button onClick={() => setSobreescribir(true)}
+              style={{ padding: "4px 14px", fontSize: 11, border: "none", cursor: "pointer",
+                background: sobreescribir ? "#171717" : "#fff",
+                color: sobreescribir ? "#fff" : "#171717",
+                fontWeight: sobreescribir ? 600 : 400 }}>
+              SÍ
+            </button>
+            <button onClick={() => setSobreescribir(false)}
+              style={{ padding: "4px 14px", fontSize: 11, border: "none", borderLeft: "1px solid #d4d4d4", cursor: "pointer",
+                background: !sobreescribir ? "#171717" : "#fff",
+                color: !sobreescribir ? "#fff" : "#171717",
+                fontWeight: !sobreescribir ? 600 : 400 }}>
+              NO
+            </button>
+          </div>
+        </div>
+        <button onClick={procesando ? () => { stopRequested.current = true; } : procesar}
+          disabled={!fileData || erroresMapeo.length > 0}
+          style={{ padding: "7px 16px", borderRadius: 6, border: "1px solid #2563eb", background: procesando ? "#fee2e2" : (fileData && erroresMapeo.length === 0 ? "#eff6ff" : "#f1f5f9"), color: procesando ? "#991b1b" : (fileData && erroresMapeo.length === 0 ? "#1e40af" : "#cbd5e1"), cursor: (fileData && erroresMapeo.length === 0) ? "pointer" : "default", fontSize: 12, fontWeight: 600 }}>
+          <BtnContent icon={procesando ? X : Upload} iconColor={procesando ? "#991b1b" : "#2563eb"}>
+            {procesando ? "Detener" : "Procesar fichero"}
+          </BtnContent>
+        </button>
+      </div>
+
+      {/* Log de progreso detallado (siempre visible, como en Actualizar Tarifas) */}
+      <div ref={logRef} style={{ height: 280, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 6, background: "#0f172a", color: "#e2e8f0", fontFamily: "monospace", fontSize: 11, padding: "8px 12px", lineHeight: 1.5 }}>
+        {log.length === 0 ? (
+          <div style={{ color: "#64748b", textAlign: "center", padding: "20px 0", fontStyle: "italic" }}>
+            Sin actividad. Carga un fichero Excel y pulsa "Procesar fichero" para ver el progreso aquí.
+          </div>
+        ) : log.map((l, i) => (
+          <div key={i} style={{ padding: "1px 0",
+            color: l.tipo === "error" ? "#fca5a5"
+              : l.tipo === "warning" ? "#fcd34d"
+              : l.tipo === "success" ? "#86efac"
+              : "#cbd5e1",
+            fontWeight: l.tipo === "error" ? 600 : 400 }}>
+            <span style={{ color: "#64748b" }}>[{l.hora}]</span>
+            {l.tipo === "error" && <span style={{ color: "#fca5a5", fontWeight: 700 }}> ❌ </span>}
+            {l.tipo === "warning" && <span style={{ color: "#fcd34d", fontWeight: 700 }}> ⚠ </span>}
+            {l.tipo === "success" && <span style={{ color: "#86efac" }}> ✓ </span>}
+            {l.tipo === "info" && " "}
+            {l.texto}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MantenimientoSection({ setStatus }) {
   const [logsDialog, setLogsDialog] = useState(false);
   const [logs, setLogs] = useState([]);
@@ -2000,6 +2224,154 @@ function MantenimientoSection({ setStatus }) {
         {showFamiliasDialog && <MantenimientoFamiliaDialog onClose={() => setShowFamiliasDialog(false)} setStatus={setStatus} />}
         {showSubfamiliasDialog && <MantenimientoSubfamiliaDialog onClose={() => setShowSubfamiliasDialog(false)} setStatus={setStatus} />}
       </div>
+
+      {/* Apartado Mantenimiento tabla Clientes (importar Excel) */}
+      <ImportTablaSection
+        setStatus={setStatus}
+        config={{
+          titulo: "Mantenimiento tabla Clientes",
+          descripcion: "Importa o actualiza clientes desde un Excel. Columna mínima obligatoria: Nombre común. Otras columnas reconocidas: Razón social, NIF/IFA, Dirección, Población, CP, Provincia.",
+          icono: Users,
+          color: "#0891b2",
+          columnas: [
+            { claves: ["nombre comun", "nombrecomun", "nombre común", "nombre"], destino: "nombrecomun", label: "Nombre común", obligatoria: true },
+            { claves: ["razon social", "razonsocial", "razón social"], destino: "razonsocial", label: "Razón social", obligatoria: false },
+            { claves: ["nif", "ifa", "cif"], destino: "ifa", label: "NIF", obligatoria: false },
+            { claves: ["direccion", "dirección"], destino: "direccion", label: "Dirección", obligatoria: false },
+            { claves: ["poblacion", "población"], destino: "poblacion", label: "Población", obligatoria: false },
+            { claves: ["cp", "codigo postal", "código postal"], destino: "cp", label: "CP", obligatoria: false },
+            { claves: ["provincia"], destino: "_provincia_nombre", label: "Provincia", obligatoria: false },
+          ],
+          cargarContexto: async () => {
+            const ctx = { clientes: [], provincias: [] };
+            try {
+              const rc = await fetch(`${API_URL}/clientes/`);
+              if (rc.ok) ctx.clientes = await rc.json();
+            } catch {}
+            try {
+              const rp = await fetch(`${API_URL}/provincias/`);
+              if (rp.ok) ctx.provincias = await rp.json();
+            } catch {}
+            return ctx;
+          },
+          procesarFila: async (datos, ctx, sobreescribir, addLog, nFila) => {
+            // Resolver provincia (nombre → id) si viene
+            let idprovincia = null;
+            if (datos._provincia_nombre) {
+              const txt = datos._provincia_nombre.toLowerCase();
+              let prov = (ctx.provincias || []).find(p => String(p.provincia).toLowerCase() === txt);
+              if (!prov) prov = (ctx.provincias || []).find(p => String(p.provincia).toLowerCase().startsWith(txt));
+              idprovincia = prov ? prov.id : null;
+              if (!prov) addLog(`Fila ${nFila}: provincia "${datos._provincia_nombre}" no encontrada, se deja vacía`, "warning");
+            }
+            const body = {
+              nombrecomun: datos.nombrecomun || null,
+              razonsocial: datos.razonsocial || null,
+              ifa: datos.ifa || null,
+              direccion: datos.direccion || null,
+              poblacion: datos.poblacion || null,
+              cp: datos.cp || null,
+              idprovincia,
+            };
+            // Buscar existente por nombre común (case-insensitive)
+            const existente = (ctx.clientes || []).find(c =>
+              String(c.nombrecomun || "").trim().toLowerCase() === String(datos.nombrecomun).trim().toLowerCase()
+            );
+            if (existente) {
+              if (!sobreescribir) {
+                addLog(`Fila ${nFila}: "${datos.nombrecomun}" → ya existe, se omite (actualizar = NO)`, "info");
+                return "omitido";
+              }
+              const r = await fetch(`${API_URL}/clientes/${existente.id}`, {
+                method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+              });
+              if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
+              addLog(`Fila ${nFila}: "${datos.nombrecomun}" → ACTUALIZADO`, "success");
+              return "actualizado";
+            } else {
+              const r = await fetch(`${API_URL}/clientes/`, {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+              });
+              if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
+              const nuevo = await r.json();
+              if (nuevo && nuevo.id) ctx.clientes.push(nuevo); // para detectar duplicados dentro del mismo Excel
+              addLog(`Fila ${nFila}: "${datos.nombrecomun}" → CREADO`, "success");
+              return "nuevo";
+            }
+          },
+        }}
+      />
+
+      {/* Apartado Mantenimiento tabla Contactos (importar Excel) */}
+      <ImportTablaSection
+        setStatus={setStatus}
+        config={{
+          titulo: "Mantenimiento tabla Contactos",
+          descripcion: "Importa o actualiza contactos desde un Excel. Columnas mínimas obligatorias: Nombre y Cliente (nombre común del cliente). Otras columnas reconocidas: Email, Cargo.",
+          icono: User,
+          color: "#0891b2",
+          columnas: [
+            { claves: ["nombre"], destino: "nombre", label: "Nombre", obligatoria: true },
+            { claves: ["cliente", "nombre cliente", "nombre comun cliente"], destino: "_cliente_nombre", label: "Cliente", obligatoria: true },
+            { claves: ["email", "correo", "e-mail"], destino: "email", label: "Email", obligatoria: false },
+            { claves: ["cargo", "puesto"], destino: "cargo", label: "Cargo", obligatoria: false },
+          ],
+          cargarContexto: async () => {
+            const ctx = { contactos: [], clientes: [] };
+            try {
+              const rc = await fetch(`${API_URL}/contactos/`);
+              if (rc.ok) ctx.contactos = await rc.json();
+            } catch {}
+            try {
+              const rcl = await fetch(`${API_URL}/clientes/`);
+              if (rcl.ok) ctx.clientes = await rcl.json();
+            } catch {}
+            return ctx;
+          },
+          procesarFila: async (datos, ctx, sobreescribir, addLog, nFila) => {
+            // Resolver cliente (nombre común → id)
+            const txt = String(datos._cliente_nombre).trim().toLowerCase();
+            let cli = (ctx.clientes || []).find(c => String(c.nombrecomun || "").trim().toLowerCase() === txt);
+            if (!cli) cli = (ctx.clientes || []).find(c => String(c.razonsocial || "").trim().toLowerCase() === txt);
+            if (!cli) {
+              addLog(`Fila ${nFila}: cliente "${datos._cliente_nombre}" no encontrado, se omite`, "error");
+              return "error";
+            }
+            const body = {
+              nombre: datos.nombre || null,
+              email: datos.email || null,
+              cargo: datos.cargo || null,
+              idcliente: cli.id,
+            };
+            // Buscar contacto existente por nombre + idcliente
+            const existente = (ctx.contactos || []).find(c =>
+              String(c.nombre || "").trim().toLowerCase() === String(datos.nombre).trim().toLowerCase() &&
+              String(c.idcliente) === String(cli.id)
+            );
+            if (existente) {
+              if (!sobreescribir) {
+                addLog(`Fila ${nFila}: "${datos.nombre}" (${cli.nombrecomun}) → ya existe, se omite (actualizar = NO)`, "info");
+                return "omitido";
+              }
+              const r = await fetch(`${API_URL}/contactos/${existente.id}`, {
+                method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+              });
+              if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
+              addLog(`Fila ${nFila}: "${datos.nombre}" (${cli.nombrecomun}) → ACTUALIZADO`, "success");
+              return "actualizado";
+            } else {
+              const r = await fetch(`${API_URL}/contactos/`, {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+              });
+              if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
+              const nuevo = await r.json();
+              if (nuevo && nuevo.id) ctx.contactos.push({ ...body, id: nuevo.id });
+              addLog(`Fila ${nFila}: "${datos.nombre}" (${cli.nombrecomun}) → CREADO`, "success");
+              return "nuevo";
+            }
+          },
+        }}
+      />
 
       {/* Apartado Grupos Descuento */}
       <div style={{ marginBottom: 20, padding: "14px 18px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8 }}>
@@ -8952,7 +9324,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.66.0 (2 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.67.2 (3 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9361,7 +9733,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.66.0 (2 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.67.2 (3 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
