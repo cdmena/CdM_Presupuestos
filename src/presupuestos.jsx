@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.68.3 (3 Junio 2026)
+// Versión: v1.69.0 (3 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.69.0 (3 Junio 2026) - Mantenimiento BD: apartado "Comprobar integridad datos en BD" (detecta registros huérfanos vía /integridad/comprobar)
 //   v1.68.3 (3 Junio 2026) - Mantenimiento Clientes/Contactos: recuadro "Mapeo de columnas detectado" con tags verde/rojo (estilo Tarifas)
 //   v1.68.2 (3 Junio 2026) - Import XLSX desde "xlsx-js-style" (coincide con package.json y aplica estilos en exportación Excel)
 //   v1.68.1 (3 Junio 2026) - Import Clientes: razón social O nombre común (al menos uno); busca por razón social; si solo razón social → nombre común = razón social
@@ -1697,6 +1698,60 @@ function MantenimientoSection({ setStatus }) {
   const [actualizandoMasusado, setActualizandoMasusado] = useState(false);
   const [ultimoResultadoMasusado, setUltimoResultadoMasusado] = useState(null);
 
+  // ─── Comprobar integridad referencial de la BD ───
+  const [integridadLog, setIntegridadLog] = useState([]);
+  const [comprobandoIntegridad, setComprobandoIntegridad] = useState(false);
+  const integridadLogRef = useRef(null);
+  const integridadAddLog = (texto, tipo = "info") => {
+    const hora = new Date().toLocaleTimeString("es-ES");
+    setIntegridadLog(l => [...l, { texto, tipo, hora }]);
+    setTimeout(() => { if (integridadLogRef.current) integridadLogRef.current.scrollTop = integridadLogRef.current.scrollHeight; }, 0);
+  };
+
+  const comprobarIntegridad = async () => {
+    setComprobandoIntegridad(true);
+    setIntegridadLog([]);
+    setStatus && setStatus("Comprobando integridad de datos en BD...", "working");
+    integridadAddLog("Iniciando comprobación de integridad referencial...", "info");
+    try {
+      const r = await fetch(`${API_URL}/integridad/comprobar`);
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const data = await r.json();
+      integridadAddLog(`Comprobadas ${data.total_relaciones} relaciones entre tablas`, "info");
+      integridadAddLog("", "info");
+
+      (data.resultados || []).forEach(res => {
+        if (res.error) {
+          integridadAddLog(`⚠ ${res.relacion}: no se pudo comprobar (${res.error})`, "warning");
+        } else if (res.huerfanos === 0) {
+          integridadAddLog(`✓ ${res.relacion}: correcto`, "success");
+        } else {
+          integridadAddLog(`❌ ${res.relacion}: ${res.huerfanos} registro(s) huérfano(s) — ${res.tabla_origen}.${res.campo} apunta a ${res.tabla_destino} inexistente`, "error");
+          res.muestra.forEach(m => {
+            integridadAddLog(`      · ${res.tabla_origen} id=${m.id_origen} → ${res.campo}=${m.valor_fk} (no existe en ${res.tabla_destino})`, "error");
+          });
+          if (res.huerfanos > res.muestra.length) {
+            integridadAddLog(`      · ... y ${res.huerfanos - res.muestra.length} más`, "error");
+          }
+        }
+      });
+
+      integridadAddLog("", "info");
+      if (data.integro) {
+        integridadAddLog(`✓ INTEGRIDAD CORRECTA: no se encontraron registros huérfanos`, "success");
+        setStatus && setStatus("Integridad correcta: no hay datos huérfanos", "success");
+      } else {
+        integridadAddLog(`❌ Se encontraron ${data.total_huerfanos} registro(s) huérfano(s) en total`, "error");
+        setStatus && setStatus(`Integridad: ${data.total_huerfanos} registros huérfanos encontrados`, "error");
+      }
+    } catch (e) {
+      integridadAddLog("Error al comprobar integridad: " + e.message, "error");
+      setStatus && setStatus("Error al comprobar integridad: " + e.message, "error");
+    } finally {
+      setComprobandoIntegridad(false);
+    }
+  };
+
   // ─── Asignar grupo descuento a productos por raíz ───
   const [asignarProcesando, setAsignarProcesando] = useState(false);
   const [asignarLog, setAsignarLog] = useState([]);
@@ -2430,6 +2485,39 @@ function MantenimientoSection({ setStatus }) {
           },
         }}
       />
+
+      {/* Apartado Comprobar integridad de datos */}
+      <div style={{ marginBottom: 20, padding: "14px 18px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#171717", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+          <Icon as={ClipboardCheck} size={16} color="#dc2626" /> Comprobar integridad datos en BD
+        </h3>
+        <p style={{ fontSize: 12, color: "#525252", marginBottom: 12, lineHeight: 1.5 }}>
+          Revisa todas las relaciones entre tablas y detecta registros "huérfanos": campos que apuntan a un id que ya no existe en otra tabla
+          (por ejemplo, un grupo descuento con una subfamilia relacionada que no existe, un contacto con un cliente borrado, un detalle de presupuesto sin su presupuesto, etc.).
+        </p>
+        <button onClick={comprobarIntegridad} disabled={comprobandoIntegridad}
+          style={{ padding: "7px 16px", borderRadius: 6, border: "1px solid #dc2626", background: comprobandoIntegridad ? "#f5f5f5" : "#fef2f2", color: comprobandoIntegridad ? "#737373" : "#991b1b", cursor: comprobandoIntegridad ? "default" : "pointer", fontSize: 12, fontWeight: 600, marginBottom: 12 }}>
+          <BtnContent icon={comprobandoIntegridad ? RefreshCw : ClipboardCheck} iconColor={comprobandoIntegridad ? "#737373" : "#dc2626"}>
+            {comprobandoIntegridad ? "Comprobando..." : "Comprobar integridad"}
+          </BtnContent>
+        </button>
+        <div ref={integridadLogRef} style={{ height: 280, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 6, background: "#0f172a", color: "#e2e8f0", fontFamily: "monospace", fontSize: 11, padding: "8px 12px", lineHeight: 1.5 }}>
+          {integridadLog.length === 0 ? (
+            <div style={{ color: "#64748b", textAlign: "center", padding: "20px 0", fontStyle: "italic" }}>
+              Sin actividad. Pulsa "Comprobar integridad" para revisar las relaciones entre tablas.
+            </div>
+          ) : integridadLog.map((l, i) => (
+            <div key={i} style={{ padding: "1px 0", whiteSpace: "pre-wrap",
+              color: l.tipo === "error" ? "#fca5a5"
+                : l.tipo === "warning" ? "#fcd34d"
+                : l.tipo === "success" ? "#86efac"
+                : "#cbd5e1",
+              fontWeight: l.tipo === "error" && !l.texto.startsWith("      ") ? 600 : 400 }}>
+              {l.texto ? <><span style={{ color: "#64748b" }}>[{l.hora}]</span> {l.texto}</> : " "}
+            </div>
+          ))}
+        </div>
+      </div>
 
       {/* Apartado Grupos Descuento */}
       <div style={{ marginBottom: 20, padding: "14px 18px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8 }}>
@@ -9384,7 +9472,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.68.3 (3 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.69.0 (3 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9793,7 +9881,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.68.3 (3 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.69.0 (3 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
