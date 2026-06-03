@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.68.0 (3 Junio 2026)
+// Versión: v1.68.2 (3 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.68.2 (3 Junio 2026) - Import XLSX desde "xlsx-js-style" (coincide con package.json y aplica estilos en exportación Excel)
+//   v1.68.1 (3 Junio 2026) - Import Clientes: razón social O nombre común (al menos uno); busca por razón social; si solo razón social → nombre común = razón social
 //   v1.68.0 (3 Junio 2026) - Clientes: nuevas columnas nif(varchar) y telefono1; ifa ahora integer; cp integer. UI + importación Excel
 //   v1.67.2 (3 Junio 2026) - Mantenimiento Clientes/Contactos: log de progreso detallado siempre visible (estilo Tarifas)
 //   v1.67.1 (3 Junio 2026) - Mantenimiento Clientes/Contactos: selector "Actualizar existentes" con el mismo estilo toggle que Tarifas
@@ -104,7 +106,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   v1.43.3 (27 Mayo 2026) - Pastilla siempre visible (solo icono User) hasta login OK
 //   v1.43.2 (27 Mayo 2026) - Usuario por defecto vacío; pastilla solo se ve tras login OK
 // ─────────────────────────────────────────────────────────────────────
-import * as XLSX from "xlsx-js-style"; // En CodeSandbox cambiar a "xlsx-js-style" para que aplique colores
+import * as XLSX from "xlsx-js-style"; // Fork de SheetJS con soporte de estilos de celda (colores, negrita, bordes)
 import { FileText, FolderOpen, Download, Upload, Printer, BarChart3, Palette, Grid3x3, Search, Eraser, MoreHorizontal, Calculator, Link2, Eye, Trash2, X, Scale, Square, MessageSquare, Plus, FileInput, Edit3, TrendingUp, Scissors, CornerDownLeft, DollarSign, Database, Repeat, Bot, HelpCircle, Settings, Percent, Users, Target, Hash, Save, RefreshCw, Home, FileSpreadsheet, MousePointer, Layers, Package, Wrench, ArrowLeft, Check, Copy, FileUp, ClipboardCheck, User, Lock, LogIn, LogOut } from "lucide-react";
 
 // Helper para iconos outline pequeños del menú
@@ -2231,11 +2233,11 @@ function MantenimientoSection({ setStatus }) {
         setStatus={setStatus}
         config={{
           titulo: "Mantenimiento tabla Clientes",
-          descripcion: "Importa o actualiza clientes desde un Excel. Columna mínima obligatoria: Nombre común. Otras columnas reconocidas: Razón social, NIF/IFA, Dirección, Población, CP, Provincia.",
+          descripcion: "Importa o actualiza clientes desde un Excel. Mínimo: Razón social O Nombre común (al menos uno). Otras columnas reconocidas: NIF, IFA, Dirección, Población, CP, Teléfono, Provincia. Al crear un cliente con solo razón social, se usa también como nombre común.",
           icono: Users,
           color: "#0891b2",
           columnas: [
-            { claves: ["nombre comun", "nombrecomun", "nombre común", "nombre"], destino: "nombrecomun", label: "Nombre común", obligatoria: true },
+            { claves: ["nombre comun", "nombrecomun", "nombre común", "nombre"], destino: "nombrecomun", label: "Nombre común", obligatoria: false },
             { claves: ["razon social", "razonsocial", "razón social"], destino: "razonsocial", label: "Razón social", obligatoria: false },
             { claves: ["nif", "cif"], destino: "nif", label: "NIF", obligatoria: false },
             { claves: ["ifa"], destino: "ifa", label: "IFA", obligatoria: false },
@@ -2258,6 +2260,13 @@ function MantenimientoSection({ setStatus }) {
             return ctx;
           },
           procesarFila: async (datos, ctx, sobreescribir, addLog, nFila) => {
+            const razon = String(datos.razonsocial || "").trim();
+            const nombreC = String(datos.nombrecomun || "").trim();
+            // Validación: al menos uno de los dos
+            if (!razon && !nombreC) {
+              addLog(`Fila ${nFila}: sin razón social ni nombre común, se omite`, "warning");
+              return "error";
+            }
             // Resolver provincia (nombre → id) si viene
             let idprovincia = null;
             if (datos._provincia_nombre) {
@@ -2273,40 +2282,60 @@ function MantenimientoSection({ setStatus }) {
               const n = parseInt(String(v).replace(/[^0-9-]/g, ""), 10);
               return isNaN(n) ? null : n;
             };
-            const body = {
-              nombrecomun: datos.nombrecomun || null,
-              razonsocial: datos.razonsocial || null,
-              nif: datos.nif || null,
-              ifa: toInt(datos.ifa),
-              direccion: datos.direccion || null,
-              poblacion: datos.poblacion || null,
-              cp: toInt(datos.cp),
-              telefono1: datos.telefono1 || null,
-              idprovincia,
-            };
-            // Buscar existente por nombre común (case-insensitive)
-            const existente = (ctx.clientes || []).find(c =>
-              String(c.nombrecomun || "").trim().toLowerCase() === String(datos.nombrecomun).trim().toLowerCase()
-            );
+
+            // Buscar existente: por razón social primero, luego por nombre común (case-insensitive)
+            let existente = null;
+            if (razon) {
+              existente = (ctx.clientes || []).find(c => String(c.razonsocial || "").trim().toLowerCase() === razon.toLowerCase());
+            }
+            if (!existente && nombreC) {
+              existente = (ctx.clientes || []).find(c => String(c.nombrecomun || "").trim().toLowerCase() === nombreC.toLowerCase());
+            }
+            const etiqueta = razon || nombreC;
+
             if (existente) {
               if (!sobreescribir) {
-                addLog(`Fila ${nFila}: "${datos.nombrecomun}" → ya existe, se omite (actualizar = NO)`, "info");
+                addLog(`Fila ${nFila}: "${etiqueta}" → ya existe, se omite (actualizar = NO)`, "info");
                 return "omitido";
               }
+              // Actualizar: respetar valores existentes si la celda del Excel viene vacía
+              const body = {
+                nombrecomun: nombreC || existente.nombrecomun || razon || null,
+                razonsocial: razon || existente.razonsocial || null,
+                nif: datos.nif || existente.nif || null,
+                ifa: datos.ifa != null && String(datos.ifa).trim() !== "" ? toInt(datos.ifa) : (existente.ifa ?? null),
+                direccion: datos.direccion || existente.direccion || null,
+                poblacion: datos.poblacion || existente.poblacion || null,
+                cp: datos.cp != null && String(datos.cp).trim() !== "" ? toInt(datos.cp) : (existente.cp ?? null),
+                telefono1: datos.telefono1 || existente.telefono1 || null,
+                idprovincia: idprovincia != null ? idprovincia : (existente.idprovincia ?? null),
+              };
               const r = await fetch(`${API_URL}/clientes/${existente.id}`, {
                 method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
               });
               if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
-              addLog(`Fila ${nFila}: "${datos.nombrecomun}" → ACTUALIZADO`, "success");
+              addLog(`Fila ${nFila}: "${etiqueta}" → ACTUALIZADO`, "success");
               return "actualizado";
             } else {
+              // Crear nuevo. Si solo hay razón social, el nombre común será la razón social (y viceversa)
+              const body = {
+                nombrecomun: nombreC || razon || null,
+                razonsocial: razon || nombreC || null,
+                nif: datos.nif || null,
+                ifa: toInt(datos.ifa),
+                direccion: datos.direccion || null,
+                poblacion: datos.poblacion || null,
+                cp: toInt(datos.cp),
+                telefono1: datos.telefono1 || null,
+                idprovincia,
+              };
               const r = await fetch(`${API_URL}/clientes/`, {
                 method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
               });
               if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
               const nuevo = await r.json();
               if (nuevo && nuevo.id) ctx.clientes.push(nuevo); // para detectar duplicados dentro del mismo Excel
-              addLog(`Fila ${nFila}: "${datos.nombrecomun}" → CREADO`, "success");
+              addLog(`Fila ${nFila}: "${etiqueta}" → CREADO`, "success");
               return "nuevo";
             }
           },
@@ -9337,7 +9366,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.68.0 (3 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.68.2 (3 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9746,7 +9775,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.68.0 (3 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.68.2 (3 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
