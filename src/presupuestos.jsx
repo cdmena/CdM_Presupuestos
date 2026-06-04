@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.72.4 (4 Junio 2026)
+// Versión: v1.73.1 (4 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.73.1 (4 Junio 2026) - Grid: al editar importes/dto se acepta coma o punto como decimal (se normaliza a número)
+//   v1.73.0 (4 Junio 2026) - Grid: todos los numéricos con coma decimal; importes en euros con € y punto de miles (con o sin estructura)
 //   v1.72.4 (4 Junio 2026) - Buscar Ref SIEMENS: ignora espacios; detecta refs pegadas sin guiones (bloque base no bloquea la versión larga)
 //   v1.72.3 (4 Junio 2026) - Buscar Ref SIEMENS: ignora espacios al detectar (refs partidas por espacios) y mapea posiciones al texto original para el resaltado
 //   v1.72.2 (4 Junio 2026) - Fix Buscar Ref SIEMENS: la última referencia aceptada se perdía (estado asíncrono); ahora se aplica correctamente
@@ -9473,12 +9475,19 @@ export default function App() {
     setRows(r => r.map(row => {
       if (row.id !== editingCell.rowId) return row;
       let value = rawValue;
+      // Columnas numéricas: aceptan coma o punto como separador decimal
+      const COLS_NUMERICAS = ["pvp", "dtoaplicado", "preciocosteunitario", "precionetounitario2"];
       if (editingCell.colKey === "cantidad") {
         const n = parseInt(String(rawValue).replace(",", "."), 10);
         value = isNaN(n) ? 0 : n;
       } else if (editingCell.colKey === "referencia") {
         // Mantener como string siempre, no convertir a Number aunque sea numérico
         value = String(rawValue ?? "");
+      } else if (COLS_NUMERICAS.includes(editingCell.colKey)) {
+        // Normalizar coma decimal → punto antes de convertir
+        const limpio = String(rawValue).replace(/\s/g, "").replace(",", ".");
+        const n = parseFloat(limpio);
+        value = isNaN(n) ? 0 : n;
       } else if (!isNaN(rawValue) && rawValue !== "") {
         value = Number(rawValue);
       }
@@ -9539,7 +9548,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.72.4 (4 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.73.1 (4 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9948,7 +9957,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.72.4 (4 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.73.1 (4 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
@@ -10226,22 +10235,22 @@ export default function App() {
                     const isHidden = colsVisibles && !colsVisibles.includes(col.key);
                     let displayVal = row[col.key] ?? "";
                     if (col.key === "posicion" && estructuraActiva) displayVal = apartados[row.id] ?? row.posicion ?? "";
+                    // Columnas cuyo valor es un importe en euros (coma decimal, punto de miles y símbolo €)
+                    const COLS_EURO = ["pvp", "precionetounitario", "precionetoposicion", "preciocosteunitario", "costeposicion", "precionetounitario2"];
                     // Las etiquetas de S1-S4/TT se asignan al activar estructura
                     // y se persisten en rows.nombre (ver useEffect de estructuraActiva).
-                    if (col.key === "precionetounitario") displayVal = estructuraActiva ? fmtEur(calcNetoUnit(row)) : fmt(calcNetoUnit(row));
+                    if (col.key === "precionetounitario") displayVal = estructuraActiva ? fmtEur(calcNetoUnit(row)) : fmtEur(calcNetoUnit(row));
                     if (col.key === "precionetoposicion") {
                       const val = esSubtotal ? subtotalCalc.neto : calcNetoPos(row);
-                      displayVal = estructuraActiva ? fmtEur(val) : fmt(val);
+                      displayVal = fmtEur(val);
                     }
-                    if (col.key === "dtoaplicado" && esSubtotal) displayVal = fmt(subtotalCalc.dto) + "%";
-                    else if (col.key === "dtoaplicado" && estructuraActiva && typeof displayVal === "number") displayVal = fmt(displayVal) + "%";
-                    if (col.key === "costeposicion") displayVal = estructuraActiva ? fmtEur(calcCostePos(row)) : fmt(calcCostePos(row));
-                    if (col.key === "margen") displayVal = fmt(calcMargen(row)) + "%";
+                    if (col.key === "dtoaplicado" && esSubtotal) displayVal = fmt(subtotalCalc.dto) + " %";
+                    else if (col.key === "dtoaplicado" && typeof displayVal === "number") displayVal = fmt(displayVal) + " %";
+                    if (col.key === "costeposicion") displayVal = fmtEur(calcCostePos(row));
+                    if (col.key === "margen") displayVal = fmt(calcMargen(row)) + " %";
                     if (col.key === "cantidad" && typeof displayVal === "number") displayVal = displayVal.toLocaleString("es-ES");
-                    // Cuando hay estructura activa, formatear también pvp, preciocosteunitario y precionetounitario2 con €
-                    if (estructuraActiva && col.key === "pvp" && typeof displayVal === "number") displayVal = fmtEur(displayVal);
-                    if (estructuraActiva && col.key === "preciocosteunitario" && typeof displayVal === "number") displayVal = fmtEur(displayVal);
-                    if (estructuraActiva && col.key === "precionetounitario2" && typeof displayVal === "number") displayVal = fmtEur(displayVal);
+                    // Importes en euros: siempre con formato € (coma decimal + punto de miles), con o sin estructura
+                    if (COLS_EURO.includes(col.key) && typeof displayVal === "number") displayVal = fmtEur(displayVal);
                     else if (col.type === "number" && typeof displayVal === "number") displayVal = fmt(displayVal);
                     // Decidir si esta celda recibe el estilo de la naturaleza
                     const celdaConEstilo = colsConEstilo ? colsConEstilo.includes(col.key) : aplicarEstiloFila;
