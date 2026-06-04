@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.76.2 (4 Junio 2026)
+// Versión: v1.77.0 (4 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.77.0 (4 Junio 2026) - Apartado: al activar estructura se persiste la numeración (1.1, 1.1.2) en posicion y se vacía en S1-S4/TT/CM; al desactivar se mantiene
 //   v1.76.2 (4 Junio 2026) - Excel Imprimir: el nº de presupuesto usa numerocompleto + revisión (antes np)
 //   v1.76.1 (4 Junio 2026) - Excel Imprimir: formato moneda € corregido (#,##0.00 €) en Neto Unitario/Posición
 //   v1.76.0 (4 Junio 2026) - Excel Imprimir: etiquetas en col D; columnas B/C/E centradas; Neto Unitario/Posición en formato moneda €
@@ -3719,6 +3720,9 @@ function calcApartados(rows) {
       else if (cnt[1] > 0) { elem[1]++; result[row.id] = join(cnt[0], cnt[1], elem[1]); }
       else if (cnt[0] > 0) { elem[0]++; result[row.id] = join(cnt[0], elem[0]); }
       else { elem[0]++; result[row.id] = join(1, elem[0]); }
+    } else if (["S1","S2","S3","S4","TT","CM"].includes(nat)) {
+      // Subtotales, total y comentarios: la columna "apartado" debe quedar vacía
+      result[row.id] = "";
     } else {
       result[row.id] = row.posicion || "";
     }
@@ -3862,7 +3866,9 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
 
   rows.forEach(row => {
     const nat = row.naturaleza;
-    const ap = estructuraActiva && apartados[row.id] ? apartados[row.id] : (row.posicion || "");
+    // Con estructura: usar la numeración calculada tal cual (vacía en S1-S4/TT/CM).
+    // Sin estructura: usar el apartado persistido en posicion.
+    const ap = estructuraActiva ? (apartados[row.id] != null ? apartados[row.id] : "") : (row.posicion || "");
     const indent = indentByNat[nat] !== undefined ? indentByNat[nat] : 0;
     const esProducto = ["PD","PE","E"].includes(nat);
     const esTitulo   = ["T1","T2","T3","T4"].includes(nat);
@@ -8535,9 +8541,10 @@ export default function App() {
         return next;
       });
       setWrapPersistente(true);
-      // Sobrescribir nombre de subtotales y total
+      // Sobrescribir nombre de subtotales y total, y persistir la numeración de apartado
       const tituloPres = String(presupuesto.titulo || "").trim();
       setRows(rs => {
+        const aps = calcApartados(rs); // numeración jerárquica con las rows actuales
         let cambios = false;
         const next = rs.map((row, idx) => {
           const nat = row.naturaleza;
@@ -8556,9 +8563,17 @@ export default function App() {
           } else if (nat === "TT") {
             nuevoNombre = tituloPres ? `TOTAL ${tituloPres}` : "TOTAL";
           }
-          if (nuevoNombre != null && nuevoNombre !== row.nombre) {
+          // Apartado a persistir: el calculado (vacío para S1-S4/TT/CM)
+          const nuevoApartado = aps[row.id] != null ? aps[row.id] : (row.posicion || "");
+          const cambiaNombre = nuevoNombre != null && nuevoNombre !== row.nombre;
+          const cambiaApartado = nuevoApartado !== (row.posicion || "");
+          if (cambiaNombre || cambiaApartado) {
             cambios = true;
-            return { ...row, nombre: nuevoNombre };
+            return {
+              ...row,
+              nombre: cambiaNombre ? nuevoNombre : row.nombre,
+              posicion: nuevoApartado,
+            };
           }
           return row;
         });
@@ -9601,7 +9616,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.76.2 (4 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.77.0 (4 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -10010,7 +10025,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.76.2 (4 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.77.0 (4 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
@@ -10287,7 +10302,11 @@ export default function App() {
                     const isRight = col.type === "number" || col.type === "calc";
                     const isHidden = colsVisibles && !colsVisibles.includes(col.key);
                     let displayVal = row[col.key] ?? "";
-                    if (col.key === "posicion" && estructuraActiva) displayVal = apartados[row.id] ?? row.posicion ?? "";
+                    if (col.key === "posicion" && estructuraActiva) {
+                      // Con estructura: mostrar la numeración jerárquica calculada.
+                      // En S1-S4/TT/CM queda vacía (calcApartados devuelve "").
+                      displayVal = apartados[row.id] != null ? apartados[row.id] : "";
+                    }
                     // Columnas cuyo valor es un importe en euros (coma decimal, punto de miles y símbolo €)
                     const COLS_EURO = ["pvp", "precionetounitario", "precionetoposicion", "preciocosteunitario", "costeposicion", "precionetounitario2"];
                     // Las etiquetas de S1-S4/TT se asignan al activar estructura
