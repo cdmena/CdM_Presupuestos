@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.71.1 (4 Junio 2026)
+// Versión: v1.72.1 (4 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.72.1 (4 Junio 2026) - Si la API local no responde al iniciar, muestra diálogo de aviso que el usuario debe aceptar
+//   v1.72.0 (4 Junio 2026) - Al iniciar comprueba que la API local está viva (GET /); indicador verde/rojo en barra de estado
 //   v1.71.1 (4 Junio 2026) - Fix: escapeEditRef estaba declarado en ClientesDialog en vez de App; el doble clic en celda crasheaba
 //   v1.71.0 (4 Junio 2026) - Edición de celda: salir/cambiar de celda confirma el valor (onBlur guarda); solo Escape descarta
 //   v1.70.0 (4 Junio 2026) - Nueva fila: inserta encima de la celda seleccionada (rectángulo azul); error si no hay celda seleccionada
@@ -8076,6 +8078,7 @@ export default function App() {
     }).catch(() => {});
   }, []);
 
+
     // Pantalla de bienvenida una vez por sesión
   // Datos del usuario actual: usuario (nombre) y codigoUsuario (codigopresupuestos, para construir el nº completo)
   const [usuarioActual, setUsuarioActual] = useState(""); // Nombre del usuario en la barra (vacío hasta login OK)
@@ -8384,6 +8387,8 @@ export default function App() {
   const [filasCopiadas, setFilasCopiadas] = useState([]); // array de objetos fila (sin id)
   const [leerPmdDialog, setLeerPmdDialog] = useState(null); // {referencia, rowIdx}
   const [paisesList, setPaisesList] = useState([]); // [{id, codigo_iso2, pais, prefijo_telefonico}]
+  const [apiLocalViva, setApiLocalViva] = useState(null); // null = sin comprobar, true = viva, false = no responde
+  const [showApiLocalAviso, setShowApiLocalAviso] = useState(false); // diálogo de aviso cuando la API local no responde
   // Configuraciones varias (persistidas en fichero JSON que el usuario guarda/lee)
   const [configVarias, setConfigVarias] = useState({
     sqDestinatario: "simplequote-rfq.industry@siemens.com",
@@ -8428,6 +8433,27 @@ export default function App() {
       }, 5000);
     }
   }, []);
+
+  // Comprobar al iniciar que la API local (CdM_Presupuestos_API_local.py) está viva
+  useEffect(() => {
+    fetch(`${API_LOCAL_URL}/`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const viva = !!(data && data.estado === "ok");
+        setApiLocalViva(viva);
+        if (viva) {
+          setStatus(`API local conectada (${data.servicio || "CdM Presupuestos API local"})`, "success");
+        } else {
+          setStatus("La API local respondió pero con un estado inesperado", "warning");
+          setShowApiLocalAviso(true);
+        }
+      })
+      .catch(() => {
+        setApiLocalViva(false);
+        setStatus("API local no disponible: funciones PMD, SimpleQuote y Damex no funcionarán hasta arrancarla", "warning");
+        setShowApiLocalAviso(true);
+      });
+  }, [setStatus]);
   const [presupuesto, setPresupuesto] = useState(() => {
     const saved = cargarPresupuestoLocal();
     if (saved && saved.presupuesto) return saved.presupuesto;
@@ -9483,7 +9509,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.71.1 (4 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.72.1 (4 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9892,7 +9918,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.71.1 (4 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.72.1 (4 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
@@ -10596,6 +10622,12 @@ export default function App() {
             {new Date(statusMessage.timestamp).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
           </span>
         )}
+        {/* Indicador de estado de la API local */}
+        <span title={apiLocalViva === true ? "API local conectada" : apiLocalViva === false ? "API local no disponible" : "Comprobando API local..."}
+          style={{ marginLeft: statusMessage.timestamp ? 12 : "auto", display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: "rgba(255,255,255,0.85)", whiteSpace: "nowrap" }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: apiLocalViva === true ? "#22c55e" : apiLocalViva === false ? "#ef4444" : "#facc15", display: "inline-block" }} />
+          API local
+        </span>
       </div>
       {modal && <ModalComponent action={modal.action} label={modal.label} onClose={() => setModal(null)} />}
       {showFijarPrecio && (() => {
@@ -11166,6 +11198,28 @@ export default function App() {
             setStatus(`Cliente seleccionado: ${nombre}`, "success");
           }}
         />
+      )}
+      {showApiLocalAviso && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100001 }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", maxWidth: 460, boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+              <span style={{ width: 12, height: 12, borderRadius: "50%", background: "#ef4444", display: "inline-block", flexShrink: 0 }} />
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: "#991b1b", margin: 0 }}>API local no disponible</h3>
+            </div>
+            <p style={{ fontSize: 13, color: "#475569", lineHeight: 1.6, margin: "0 0 8px" }}>
+              No se ha podido conectar con la API local (<strong>{API_LOCAL_URL}</strong>).
+            </p>
+            <p style={{ fontSize: 13, color: "#475569", lineHeight: 1.6, margin: "0 0 16px" }}>
+              Las funciones <strong>Leer Precios de PMD</strong>, <strong>Crear SimpleQuote</strong> y <strong>Hacer Damex E</strong> no funcionarán hasta que arranques el programa <code style={{ background: "#f1f5f9", padding: "1px 5px", borderRadius: 3, fontSize: 12 }}>CdM_Presupuestos_API_local.py</code> en tu equipo.
+            </p>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button onClick={() => setShowApiLocalAviso(false)}
+                style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: "#2563eb", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+                Aceptar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {showSeleccionar && (
         <SeleccionarCeldasDialog
