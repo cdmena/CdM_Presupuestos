@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.71.0 (4 Junio 2026)
+// Versión: v1.71.1 (4 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.71.1 (4 Junio 2026) - Fix: escapeEditRef estaba declarado en ClientesDialog en vez de App; el doble clic en celda crasheaba
 //   v1.71.0 (4 Junio 2026) - Edición de celda: salir/cambiar de celda confirma el valor (onBlur guarda); solo Escape descarta
 //   v1.70.0 (4 Junio 2026) - Nueva fila: inserta encima de la celda seleccionada (rectángulo azul); error si no hay celda seleccionada
 //   v1.69.1 (3 Junio 2026) - Estilos por defecto actualizados (verde/rojo/naranja claros, fontSize 11) según fichero del usuario
@@ -5799,7 +5800,6 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
   const [error, setError] = useState(null);
   const [seleccionado, setSeleccionado] = useState(null);
   const [editingCell, setEditingCell] = useState(null);
-  const escapeEditRef = useRef(false); // true cuando se pulsa Escape para descartar la edición sin guardar
   const [editValue, setEditValue] = useState("");
   const [confirmGuardar, setConfirmGuardar] = useState(false);
   const [guardando, setGuardando] = useState(false);
@@ -8091,6 +8091,7 @@ export default function App() {
   });
   const [selectedCell, setSelectedCell] = useState(null);
   const [editingCell, setEditingCell] = useState(null);
+  const escapeEditRef = useRef(false); // true cuando se pulsa Escape para descartar la edición sin guardar
   const [editValue, setEditValue] = useState("");
   const [selectedRows, setSelectedRows] = useState(new Set());
   const [selectionRange, setSelectionRange] = useState(null); // { startRowIdx, startColIdx, endRowIdx, endColIdx }
@@ -9482,7 +9483,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.71.0 (4 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.71.1 (4 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9891,7 +9892,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.71.0 (4 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.71.1 (4 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
