@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.69.1 (3 Junio 2026)
+// Versión: v1.71.0 (4 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.71.0 (4 Junio 2026) - Edición de celda: salir/cambiar de celda confirma el valor (onBlur guarda); solo Escape descarta
+//   v1.70.0 (4 Junio 2026) - Nueva fila: inserta encima de la celda seleccionada (rectángulo azul); error si no hay celda seleccionada
 //   v1.69.1 (3 Junio 2026) - Estilos por defecto actualizados (verde/rojo/naranja claros, fontSize 11) según fichero del usuario
 //   v1.69.0 (3 Junio 2026) - Mantenimiento BD: apartado "Comprobar integridad datos en BD" (detecta registros huérfanos vía /integridad/comprobar)
 //   v1.68.3 (3 Junio 2026) - Mantenimiento Clientes/Contactos: recuadro "Mapeo de columnas detectado" con tags verde/rojo (estilo Tarifas)
@@ -5797,6 +5799,7 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
   const [error, setError] = useState(null);
   const [seleccionado, setSeleccionado] = useState(null);
   const [editingCell, setEditingCell] = useState(null);
+  const escapeEditRef = useRef(false); // true cuando se pulsa Escape para descartar la edición sin guardar
   const [editValue, setEditValue] = useState("");
   const [confirmGuardar, setConfirmGuardar] = useState(false);
   const [guardando, setGuardando] = useState(false);
@@ -9400,9 +9403,15 @@ export default function App() {
     setStatus("Función \"" + label + "\" sin implementar", "info");
   }, [presupuesto, rows, apartados, estructuraActiva, setStatus, selectedRows]);
 
-  const startEdit = (rowId, colKey, val) => { setEditingCell({ rowId, colKey }); setEditValue(String(val ?? "")); };
+  const startEdit = (rowId, colKey, val) => { escapeEditRef.current = false; setEditingCell({ rowId, colKey }); setEditValue(String(val ?? "")); };
   const commitEdit = (override) => {
     if (!editingCell) return;
+    // Si se acaba de pulsar Escape, descartar sin guardar
+    if (escapeEditRef.current) {
+      escapeEditRef.current = false;
+      setEditingCell(null);
+      return;
+    }
     const rawValue = (override !== undefined && override !== null) ? override : editValue;
     setRows(r => r.map(row => {
       if (row.id !== editingCell.rowId) return row;
@@ -9473,7 +9482,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.69.1 (3 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.71.0 (4 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9654,7 +9663,7 @@ export default function App() {
             <section id="ayuda-acciones">
               <h2 style={{ fontSize: 16, fontWeight: 700, color: "#1e3a5f", marginBottom: 12, borderBottom: "2px solid #e2e8f0", paddingBottom: 8 }}>Acciones de la grid</h2>
               {[
-                { accion: "Nueva fila",             desc: "Sin selección → añade al final. Con filas seleccionadas → inserta delante de la primera seleccionada, empujando el resto hacia abajo." },
+                { accion: "Nueva fila",             desc: "Inserta encima de la fila con la celda seleccionada (rectángulo azul), empujando el resto hacia abajo. Si no hay celda seleccionada, da error." },
                 { accion: "Campo numérico de filas", desc: "Indica cuántas filas insertar (por defecto 1, máximo 100)." },
                 { accion: "Borrar seleccionadas",    desc: "Borra filas con checkbox marcado. Pide confirmación. Deshabilitado sin selección." },
                 { accion: "Checkbox de fila",        desc: "Selecciona/deselecciona una fila. Se pueden marcar varias." },
@@ -9882,7 +9891,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.69.1 (3 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.71.0 (4 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
@@ -10215,6 +10224,8 @@ export default function App() {
                               : opciones;
                             // Confirma: si el texto coincide con un value válido (case insensitive), se acepta; si no, se cancela
                             const tryConfirm = () => {
+                              // Si se pulsó Escape, descartar sin aplicar
+                              if (escapeEditRef.current) { escapeEditRef.current = false; setEditingCell(null); return; }
                               const exacta = opciones.find(o => String(o.value || "").toUpperCase() === filtroTxt);
                               if (filtroTxt === "") {
                                 setRows(rs => rs.map(rr => rr.id === editingCell.rowId ? { ...rr, [editingCell.colKey]: "" } : rr));
@@ -10244,7 +10255,7 @@ export default function App() {
                                   onKeyDown={e => {
                                     e.stopPropagation();
                                     if (e.key === "Enter") { e.preventDefault(); tryConfirm(); }
-                                    if (e.key === "Escape") setEditingCell(null);
+                                    if (e.key === "Escape") { escapeEditRef.current = true; setEditingCell(null); }
                                   }}
                                   onBlur={tryConfirm}
                                   style={{ width: "100%", padding: "4px 8px", fontSize: 12, border: "2px solid #2563eb", outline: "none", background: "#fff", textAlign: col.align || "center", textTransform: "uppercase", boxSizing: "border-box" }} />
@@ -10305,7 +10316,7 @@ export default function App() {
                                       e.stopPropagation();
                                       // Enter confirma; Shift+Enter inserta salto de línea
                                       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); commitEdit(); }
-                                      if (e.key === "Escape") setEditingCell(null);
+                                      if (e.key === "Escape") { escapeEditRef.current = true; setEditingCell(null); }
                                     }}
                                     style={{
                                       position: "absolute", top: 0, left: 0, zIndex: 50,
@@ -10322,7 +10333,7 @@ export default function App() {
                                 <input autoFocus value={editValue} maxLength={col.maxLength || undefined}
                                   onChange={e => setEditValue(e.target.value)} onBlur={commitEdit}
                                   onMouseDown={e => e.stopPropagation()}
-                                  onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditingCell(null); }}
+                                  onKeyDown={e => { e.stopPropagation(); if (e.key === "Enter") commitEdit(); if (e.key === "Escape") { escapeEditRef.current = true; setEditingCell(null); } }}
                                   style={{ width: "100%", border: "none", outline: "none", padding: "4px 8px", fontSize: 12, fontFamily: "inherit", background: "#fff", textAlign: col.align || (isRight ? "right" : "left") }} />
                               );
                             })()
@@ -10380,14 +10391,25 @@ export default function App() {
       <div style={{ background: "#fafafa", borderTop: "1px solid #e5e5e5", padding: "5px 16px", flexShrink: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <button onClick={() => {
+                    // Inserta encima de la fila que contiene la celda seleccionada (rectángulo azul).
+                    // Si no hay celda seleccionada, da error.
+                    if (!selectedCell) {
+                      setStatus("Selecciona una celda (clic en una celda) para indicar dónde insertar la nueva fila", "error");
+                      return;
+                    }
+                    const idx = rows.findIndex(row => row.id === selectedCell.rowId);
+                    if (idx === -1) {
+                      setStatus("No se encuentra la fila de la celda seleccionada", "error");
+                      return;
+                    }
                     const n = parseInt(numFilas) || 1;
                     const nuevas = Array.from({ length: n }, () => ({ id: nextId.current++, representacion: "", naturaleza: "", posicion: "", cantidad: "", referencia: "", nombre: "", pvp: 0, dtoaplicado: 0, descripcion: "", familia: "", subfamilia: "", preciocosteunitario: 0, idposicion: "", imagen: "", precionetounitario2: 0, grupodescuento: "" }));
                     setRows(r => {
-                      if (selectedRows.size === 0) return [...r, ...nuevas];
-                      const idx = r.findIndex(row => selectedRows.has(row.id));
-                      if (idx === -1) return [...r, ...nuevas];
-                      const res = [...r]; res.splice(idx, 0, ...nuevas); return res;
+                      const res = [...r];
+                      res.splice(idx, 0, ...nuevas);
+                      return res;
                     });
+                    setStatus(`${n} fila(s) insertada(s) encima de la fila ${idx + 1}`, "success");
                   }} style={{ padding: "7px 10px", fontSize: 12, cursor: "pointer", borderRadius: 4, border: "1px solid #cbd5e1", background: "#fff", color: "#1e293b", whiteSpace: "nowrap" }}>
                     <BtnContent icon={Plus} iconColor="#16a34a">Nueva fila</BtnContent>
                   </button>
