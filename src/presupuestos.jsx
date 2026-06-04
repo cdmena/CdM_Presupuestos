@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.73.1 (4 Junio 2026)
+// Versión: v1.76.2 (4 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,13 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.76.2 (4 Junio 2026) - Excel Imprimir: el nº de presupuesto usa numerocompleto + revisión (antes np)
+//   v1.76.1 (4 Junio 2026) - Excel Imprimir: formato moneda € corregido (#,##0.00 €) en Neto Unitario/Posición
+//   v1.76.0 (4 Junio 2026) - Excel Imprimir: etiquetas en col D; columnas B/C/E centradas; Neto Unitario/Posición en formato moneda €
+//   v1.75.0 (4 Junio 2026) - Barra inferior: muestra nº de celdas seleccionadas (rectángulo azul) y suma de sus valores numéricos (estilo Excel)
+//   v1.74.1 (4 Junio 2026) - Tooltips también en los menús de nivel superior (Presupuesto, Celdas, Productos, etc.)
+//   v1.74.0 (4 Junio 2026) - Tooltips descriptivos (title) en todos los items de menú/submenú y en el menú de Opciones
+//   v1.73.2 (4 Junio 2026) - Fix formato: punto de miles también en números de 4 cifras (useGrouping "always" en fmt/fmtEur)
 //   v1.73.1 (4 Junio 2026) - Grid: al editar importes/dto se acepta coma o punto como decimal (se normaliza a número)
 //   v1.73.0 (4 Junio 2026) - Grid: todos los numéricos con coma decimal; importes en euros con € y punto de miles (con o sin estructura)
 //   v1.72.4 (4 Junio 2026) - Buscar Ref SIEMENS: ignora espacios; detecta refs pegadas sin guiones (bloque base no bloquea la versión larga)
@@ -179,11 +186,11 @@ const NATURALEZAS_CON_ESTILO = [
 ];
 
 const OPCIONES_MENU = [
-  { id: "estilos",       label: "Configurar Estilos", icon: Palette },
-  { id: "tarifas",       label: "Actualizar Tarifas", icon: TrendingUp },
-  { id: "mantenimiento", label: "Mantenimiento BD",   icon: Database },
-  { id: "usuarios",      label: "Gestión de Usuarios", icon: Users },
-  { id: "varias",        label: "Configuraciones Varias", icon: Settings },
+  { id: "estilos",       label: "Configurar Estilos", icon: Palette, tooltip: "Define colores y fuentes de cada naturaleza (T1-T4, S1-S4, etc.)" },
+  { id: "tarifas",       label: "Actualizar Tarifas", icon: TrendingUp, tooltip: "Importa precios y datos de productos desde un Excel de tarifa" },
+  { id: "mantenimiento", label: "Mantenimiento BD",   icon: Database, tooltip: "Mantiene tablas (productos, clientes, contactos) y comprueba integridad" },
+  { id: "usuarios",      label: "Gestión de Usuarios", icon: Users, tooltip: "Crea usuarios, contraseñas y permisos de la aplicación" },
+  { id: "varias",        label: "Configuraciones Varias", icon: Settings, tooltip: "Ajustes de SimpleQuote (destinatario/CC) y otras opciones" },
 ];
 
 // ── Sección Actualizar Tarifas dentro de Opciones ──
@@ -3059,6 +3066,7 @@ function OpcionesScreen({ estilos, setEstilos, configVarias, setConfigVarias, on
           <div style={{ padding: "10px 12px 6px", fontSize: 11, fontWeight: 700, color: "#94a3b8", letterSpacing: 1, textTransform: "uppercase" }}>Configuración</div>
           {OPCIONES_MENU.map(opt => (
             <div key={opt.id}
+              title={opt.tooltip || undefined}
               onClick={() => setSeccion(opt.id)}
               style={{ padding: "8px 14px", cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", gap: 8,
                 background: seccion === opt.id ? "#eff6ff" : "transparent",
@@ -3308,64 +3316,64 @@ function TreeNode({ node, activeId, onSelect, depth = 0 }) {
 }
 
 const MENU_STRUCTURE = [
-  { id: "presupuesto", icon: FileText, label: "Presupuesto", items: [
-    { label: "Guardar Presupuesto", action: "GuardarPresupuesto", icon: Save },
-    { label: "Comprobar Presupuesto", action: "ComprobarPresupuesto", icon: ClipboardCheck },
-    { label: "Leer Presupuestos", action: "LeerPresupuestos", icon: FolderOpen },
-    { label: "Importar", action: "Importar", icon: Download },
-    { label: "Exportar", action: "Exportar", icon: FileUp },
-    { label: "Imprimir", action: "Imprimir", icon: Printer },
-    { label: "Formato Simple Quote", action: "FormatoSimpleQuote", icon: Printer },
-    { label: "Crear SimpleQuote", action: "CrearSimpleQuote", icon: FileSpreadsheet },
-    { label: "Hacer Damex E", action: "HacerDamexE", icon: FileSpreadsheet },
-    { label: "Resumen", action: "Resumen", icon: BarChart3 },
-    { label: "Aplicar Estructura", action: "AplicarEstructura", icon: Palette },
-    { label: "Borrar Presupuesto actual", action: "BorrarPresupuestoActual", icon: X },
-    { label: "Comparar Presupuestos", action: "CompararPresupuestos", icon: Scale },
+  { id: "presupuesto", icon: FileText, label: "Presupuesto", tooltip: "Guardar, leer, importar/exportar y operar con presupuestos", items: [
+    { label: "Guardar Presupuesto", action: "GuardarPresupuesto", icon: Save, tooltip: "Guarda el presupuesto actual (cabecera y líneas) en la base de datos" },
+    { label: "Comprobar Presupuesto", action: "ComprobarPresupuesto", icon: ClipboardCheck, tooltip: "Verifica referencias, precios y datos de las líneas contra la BD" },
+    { label: "Leer Presupuestos", action: "LeerPresupuestos", icon: FolderOpen, tooltip: "Abre la lista de presupuestos guardados para cargar uno" },
+    { label: "Importar", action: "Importar", icon: Download, tooltip: "Carga las líneas del presupuesto desde un fichero Excel" },
+    { label: "Exportar", action: "Exportar", icon: FileUp, tooltip: "Vuelca el presupuesto actual a un fichero Excel con estilos" },
+    { label: "Imprimir", action: "Imprimir", icon: Printer, tooltip: "Genera la versión imprimible del presupuesto" },
+    { label: "Formato Simple Quote", action: "FormatoSimpleQuote", icon: Printer, tooltip: "Prepara el presupuesto con el formato de tabla SimpleQuote" },
+    { label: "Crear SimpleQuote", action: "CrearSimpleQuote", icon: FileSpreadsheet, tooltip: "Envía la oferta a SimpleQuote (Siemens) vía la API local" },
+    { label: "Hacer Damex E", action: "HacerDamexE", icon: FileSpreadsheet, tooltip: "Crea el pedido Damex E en Siemens con los datos del cliente final" },
+    { label: "Resumen", action: "Resumen", icon: BarChart3, tooltip: "Muestra el resumen por familia/subfamilia con importes y márgenes" },
+    { label: "Aplicar Estructura", action: "AplicarEstructura", icon: Palette, tooltip: "Aplica colores y estilos de títulos, subtotales y comentarios" },
+    { label: "Borrar Presupuesto actual", action: "BorrarPresupuestoActual", icon: X, tooltip: "Vacía el presupuesto en pantalla (no borra el guardado en BD)" },
+    { label: "Comparar Presupuestos", action: "CompararPresupuestos", icon: Scale, tooltip: "Compara dos presupuestos línea a línea" },
   ]},
-  { id: "celdas", icon: Grid3x3, label: "Celdas", items: [
-    { label: "Comprobar Celda", action: "ComprobarCelda", icon: Search },
-    { label: "Borrar filas vacías", action: "BorrarFilas", icon: Trash2 },
-    { label: "Ver Familia", action: "VerFamilia", icon: Eye },
-    { label: "Borrar filas con 0", action: "BorrarFilasCero", icon: Trash2 },
-    { label: "Seleccionar Celdas", action: "SeleccionarCeldas", icon: Square },
-    { label: "Convertir selección en comentario", action: "ConvertirEnComentario", icon: MessageSquare },
-    { label: "Juntar celdas en una", action: "JuntarCeldas", icon: Link2 },
+  { id: "celdas", icon: Grid3x3, label: "Celdas", tooltip: "Operaciones sobre celdas y filas del grid", items: [
+    { label: "Comprobar Celda", action: "ComprobarCelda", icon: Search, tooltip: "Comprueba en BD la referencia de la celda seleccionada" },
+    { label: "Borrar filas vacías", action: "BorrarFilas", icon: Trash2, tooltip: "Elimina las filas completamente vacías del grid" },
+    { label: "Ver Familia", action: "VerFamilia", icon: Eye, tooltip: "Muestra familia y subfamilia de los productos del presupuesto" },
+    { label: "Borrar filas con 0", action: "BorrarFilasCero", icon: Trash2, tooltip: "Elimina las filas cuya cantidad es 0" },
+    { label: "Seleccionar Celdas", action: "SeleccionarCeldas", icon: Square, tooltip: "Selecciona un rango de celdas para operar sobre ellas" },
+    { label: "Convertir selección en comentario", action: "ConvertirEnComentario", icon: MessageSquare, tooltip: "Convierte las filas seleccionadas en líneas de comentario (CM)" },
+    { label: "Juntar celdas en una", action: "JuntarCeldas", icon: Link2, tooltip: "Une el contenido de varias celdas en una sola" },
   ]},
-  { id: "elementos", icon: Layers, label: "Elementos", items: [
-    { label: "Guardar Elemento", action: "GuardarElemento", icon: Save },
-    { label: "Leer Elemento", action: "LeerElemento", icon: Download },
+  { id: "elementos", icon: Layers, label: "Elementos", tooltip: "Guardar y reutilizar conjuntos de líneas (elementos)", items: [
+    { label: "Guardar Elemento", action: "GuardarElemento", icon: Save, tooltip: "Guarda las líneas seleccionadas como un elemento reutilizable" },
+    { label: "Leer Elemento", action: "LeerElemento", icon: Download, tooltip: "Inserta en el presupuesto las líneas de un elemento guardado" },
   ]},
-  { id: "productos", icon: Package, label: "Productos", items: [
-    { label: "Guardar Producto", action: "GuardarProducto", icon: Save },
-    { label: "Leer Producto", action: "LeerProducto", icon: Download },
-    { label: "Buscar datos por Referencia", action: "BuscarDatosProductos", icon: Search },
-    { label: "Juntar productos duplicados", action: "JuntarDuplicados", icon: Layers },
+  { id: "productos", icon: Package, label: "Productos", tooltip: "Buscar, guardar y procesar productos del catálogo", items: [
+    { label: "Guardar Producto", action: "GuardarProducto", icon: Save, tooltip: "Crea o actualiza un producto en el catálogo de la BD" },
+    { label: "Leer Producto", action: "LeerProducto", icon: Download, tooltip: "Busca un producto del catálogo y vuelca sus datos" },
+    { label: "Buscar datos por Referencia", action: "BuscarDatosProductos", icon: Search, tooltip: "Rellena nombre, PVP y datos de cada línea por su referencia" },
+    { label: "Juntar productos duplicados", action: "JuntarDuplicados", icon: Layers, tooltip: "Agrupa en una sola línea los productos repetidos sumando cantidades" },
     { label: "---" },
-    { label: "Quitar caracteres Referencia", action: "QuitarEspacios", icon: Scissors },
-    { label: "Quitar Saltos de línea", action: "QuitarCR", icon: CornerDownLeft },
-    { label: "Leer Precios de PMD", action: "LeerPreciosPMD", icon: Download },
-    { label: "Buscar Referencia SIEMENS", action: "BuscarReferencia", icon: Search },
-    { label: "Buscar equivalencia Competencia", action: "BuscarEquivalencia", icon: Repeat },
-    { label: "Calcular PVP a partir de GA", action: "CalcularPVP", icon: Calculator },
-    { label: "Asistente Referencias", action: "Asistente", icon: Bot },
+    { label: "Quitar caracteres Referencia", action: "QuitarEspacios", icon: Scissors, tooltip: "Elimina espacios y caracteres sobrantes de las referencias" },
+    { label: "Quitar Saltos de línea", action: "QuitarCR", icon: CornerDownLeft, tooltip: "Elimina los saltos de línea del texto de las celdas" },
+    { label: "Leer Precios de PMD", action: "LeerPreciosPMD", icon: Download, tooltip: "Consulta precios actualizados en PMD vía la API local" },
+    { label: "Buscar Referencia SIEMENS", action: "BuscarReferencia", icon: Search, tooltip: "Detecta referencias Siemens (MLFB) en el texto y las extrae a celdas" },
+    { label: "Buscar equivalencia Competencia", action: "BuscarEquivalencia", icon: Repeat, tooltip: "Busca el producto de competencia equivalente a la referencia" },
+    { label: "Calcular PVP a partir de GA", action: "CalcularPVP", icon: Calculator, tooltip: "Calcula el PVP a partir del coste GA y el margen" },
+    { label: "Asistente Referencias", action: "Asistente", icon: Bot, tooltip: "Asistente para completar y corregir referencias" },
   ]},
-  { id: "clientes", icon: Users, label: "Clientes", items: [
-    { label: "Gestionar Clientes", action: "GestionarClientes", icon: Users },
-    { label: "Gestionar Contactos", action: "GestionarContactos", icon: User },
+  { id: "clientes", icon: Users, label: "Clientes", tooltip: "Gestionar clientes y contactos", items: [
+    { label: "Gestionar Clientes", action: "GestionarClientes", icon: Users, tooltip: "Abre la tabla de clientes para crear, editar o borrar" },
+    { label: "Gestionar Contactos", action: "GestionarContactos", icon: User, tooltip: "Abre la tabla de contactos para crear, editar o borrar" },
   ]},
-  { id: "descuentos", icon: Percent, label: "Descuentos", items: [
-    { label: "Aplicar descuentos", action: "AplicarDescuentos", icon: DollarSign },
-    { label: "Calcular Descuento", action: "CalcularDescuento", icon: Calculator },
-    { label: "Fijar el precio total", action: "FijarPrecioTotal", icon: Target },
-    { label: "Fijar precio de celdas", action: "FijarPrecioCeldas", icon: Hash },
+  { id: "descuentos", icon: Percent, label: "Descuentos", tooltip: "Aplicar y calcular descuentos y precios", items: [
+    { label: "Aplicar descuentos", action: "AplicarDescuentos", icon: DollarSign, tooltip: "Aplica un porcentaje de descuento a las celdas seleccionadas" },
+    { label: "Calcular Descuento", action: "CalcularDescuento", icon: Calculator, tooltip: "Calcula el descuento entre dos precios" },
+    { label: "Fijar el precio total", action: "FijarPrecioTotal", icon: Target, tooltip: "Ajusta los descuentos para alcanzar un precio total objetivo" },
+    { label: "Fijar precio de celdas", action: "FijarPrecioCeldas", icon: Hash, tooltip: "Fija el precio neto de las celdas seleccionadas" },
   ]},
-  { id: "otros", icon: MoreHorizontal, label: "Otros", items: [
-    { label: "Ayuda", action: "Ayuda", icon: HelpCircle },
-    { label: "Opciones", action: "Opciones", icon: Settings },
+  { id: "otros", icon: MoreHorizontal, label: "Otros", tooltip: "Ayuda, opciones y bases de datos auxiliares", items: [
+    { label: "Ayuda", action: "Ayuda", icon: HelpCircle, tooltip: "Muestra la ayuda con atajos y acciones del grid" },
+    { label: "Opciones", action: "Opciones", icon: Settings, tooltip: "Estilos, tarifas, mantenimiento de BD, usuarios y configuración" },
     { label: "---" },
-    { label: "Gestionar Descuentos", action: "GestionarDescuentos", icon: Percent },
-    { label: "Gestionar BD Competencia", action: "GestionarProductosCompetencia", icon: Database },
+    { label: "Gestionar Descuentos", action: "GestionarDescuentos", icon: Percent, tooltip: "Gestiona los grupos de descuento del catálogo" },
+    { label: "Gestionar BD Competencia", action: "GestionarProductosCompetencia", icon: Database, tooltip: "Mantiene la base de datos de productos de la competencia" },
   ]},
 ];
 
@@ -3648,12 +3656,12 @@ function calcNetoUnit(row) { return (row.pvp || 0) * (1 - (row.dtoaplicado || 0)
 function calcNetoPos(row)  { return calcNetoUnit(row) * (row.cantidad || 0); }
 function calcCostePos(row) { return (row.preciocosteunitario || 0) * (row.cantidad || 0); }
 function calcMargen(row)   { const n = calcNetoPos(row), c = calcCostePos(row); return n ? ((n - c) / n) * 100 : 0; }
-function fmt(n) { return (n || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function fmt(n) { return (n || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" }); }
 // Formato monetario con €. Si el valor es 0 devuelve "" (campo vacío)
 function fmtEur(n) {
   const num = Number(n) || 0;
   if (num === 0) return "";
-  return num.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+  return num.toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" }) + " €";
 }
 
 function calcSubtotal(rows, rowIdx, nivel) {
@@ -3834,13 +3842,14 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
 
   // ── Construir matriz de datos ──
   const aoa = [];
-  aoa.push([null, `OFERTA SIEMENS — ${presupuesto.np} Rev.${presupuesto.revision}`]);
+  const numCompleto = presupuesto.numerocompleto || presupuesto.np || "";
+  aoa.push([null, `OFERTA SIEMENS — ${numCompleto} Rev.${presupuesto.revision}`]);
   aoa.push([]);
-  aoa.push([null, "Presupuesto Descripción", null, null, presupuesto.titulo]);
-  aoa.push([null, "Cliente",                 null, null, presupuesto.cliente]);
-  aoa.push([null, "Presupuesto Número",      null, null, `${presupuesto.np} Revisión ${presupuesto.revision}`]);
+  aoa.push([null, null, null, "Presupuesto Descripción", presupuesto.titulo]);
+  aoa.push([null, null, null, "Cliente",                 presupuesto.cliente]);
+  aoa.push([null, null, null, "Presupuesto Número",      `${numCompleto} Revisión ${presupuesto.revision}`]);
   aoa.push([]);
-  aoa.push([null, "Fecha",                   null, null, fechaHoy]);
+  aoa.push([null, null, null, "Fecha",                   fechaHoy]);
   aoa.push([]);
   aoa.push([null, "Apartado", "Cantidad", "Referencia", "Producto", "Neto Unitario", "Neto Posición", "Descripción"]);
   aoa.push([]);
@@ -3934,11 +3943,12 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
   }
 
   // ── Cabecera del presupuesto (filas 2, 3, 4, 6) ──
+  // La etiqueta va ahora en la columna D (índice 3); el valor sigue en E..H (merge 4..7)
   [2, 3, 4, 6].forEach(r => {
-    setStyle(r, 1, {
+    setStyle(r, 3, {
       font: { name: "Calibri", sz: 11, bold: true, color: { rgb: C.HEADER_TEXT } },
       fill: { patternType: "solid", fgColor: { rgb: C.LABEL } },
-      alignment: { horizontal: "left", vertical: "center", indent: 1 },
+      alignment: { horizontal: "right", vertical: "center", indent: 1 },
       border,
     });
     // Valor merge (columnas 4..7)
@@ -3984,8 +3994,11 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
     }
 
     for (let c = 1; c <= 7; c++) {
-      const isNumeric = c === 2 || c === 5 || c === 6;
-      const isLeftAlign = c === 3 || c === 4 || c === 7;
+      // Columnas B(1), C(2) y E(4) → centradas horizontal y verticalmente
+      const isCentrada = c === 1 || c === 2 || c === 4;
+      // Columnas de importe en euros (Neto Unitario=5, Neto Posición=6) → a la derecha
+      const isEuro = c === 5 || c === 6;
+      const isLeftAlign = c === 3 || c === 7;
       const isProductoCol = c === 4;
       const aplicarEstilo = columnasConEstilo.has(c);
 
@@ -3994,10 +4007,11 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
           ? { name: st.font || "Calibri", sz: st.size, bold: st.bold, color: { rgb: st.color } }
           : { name: "Calibri", sz: 11, bold: false, color: { rgb: "171717" } },
         alignment: {
-          horizontal: isNumeric ? "right" : (isLeftAlign ? "left" : "center"),
+          horizontal: isEuro ? "right" : (isCentrada ? "center" : (isLeftAlign ? "left" : "center")),
           vertical: "center",
           wrapText: true,
-          indent: isProductoCol ? meta.indent : 0,
+          // En la columna Producto, si va centrada no aplicamos sangría
+          indent: (isProductoCol && !isCentrada) ? meta.indent : 0,
         },
         border,
       };
@@ -4009,7 +4023,8 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
       // Formato numérico
       const addr = XLSX.utils.encode_cell({ r, c });
       if ((c === 5 || c === 6) && ws[addr] && typeof ws[addr].v === "number") {
-        ws[addr].z = "#,##0.00";
+        // Moneda: 2 decimales, separador de miles y símbolo € a la derecha
+        ws[addr].z = '#,##0.00" \u20AC"';
       }
       if (c === 2 && ws[addr] && typeof ws[addr].v === "number") {
         ws[addr].z = "#,##0";
@@ -7317,7 +7332,7 @@ function MenuItem({ item, onAction }) {
   if (item.label === "---") return <div style={{ height: 1, background: "#e2e8f0", margin: "4px 0" }} />;
   if (item.submenu) return (
     <div style={{ position: "relative" }} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-      <div style={{ padding: "7px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between", gap: 24, fontSize: 13, color: "#1e293b", borderRadius: 4, background: open ? "#f1f5f9" : "transparent", whiteSpace: "nowrap" }}>
+      <div title={item.tooltip || undefined} style={{ padding: "7px 14px", cursor: "pointer", display: "flex", justifyContent: "space-between", gap: 24, fontSize: 13, color: "#1e293b", borderRadius: 4, background: open ? "#f1f5f9" : "transparent", whiteSpace: "nowrap" }}>
         <span>{item.label}</span><span style={{ fontSize: 10, color: "#94a3b8" }}>▶</span>
       </div>
       {open && (
@@ -7328,7 +7343,7 @@ function MenuItem({ item, onAction }) {
     </div>
   );
   return (
-    <div style={{ padding: "7px 14px", cursor: "pointer", fontSize: 13, color: "#1e293b", borderRadius: 4, display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}
+    <div title={item.tooltip || undefined} style={{ padding: "7px 14px", cursor: "pointer", fontSize: 13, color: "#1e293b", borderRadius: 4, display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap" }}
       onMouseEnter={e => e.currentTarget.style.background = "#f1f5f9"}
       onMouseLeave={e => e.currentTarget.style.background = "transparent"}
       onClick={() => onAction(item.action, item.label)}>
@@ -7341,7 +7356,7 @@ function MenuGroup({ group, onAction }) {
   const [open, setOpen] = useState(false);
   return (
     <div style={{ position: "relative" }} onMouseEnter={() => setOpen(true)} onMouseLeave={() => setOpen(false)}>
-      <div style={{ padding: "6px 14px", cursor: "pointer", fontSize: 13, fontWeight: 500, color: open ? "#2563eb" : "#1e293b", borderBottom: open ? "2px solid #2563eb" : "2px solid transparent", userSelect: "none", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 6 }}>
+      <div title={group.tooltip || undefined} style={{ padding: "6px 14px", cursor: "pointer", fontSize: 13, fontWeight: 500, color: open ? "#2563eb" : "#1e293b", borderBottom: open ? "2px solid #2563eb" : "2px solid transparent", userSelect: "none", whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 6 }}>
         <Icon as={group.icon} size={14} color={open ? "#2563eb" : "#475569"} />
         <span>{group.label}</span>
       </div>
@@ -9507,6 +9522,44 @@ export default function App() {
   };
 
   const totalNeto  = rows.reduce((s, r) => s + calcNetoPos(r), 0);
+
+  // Resumen de la selección (rectángulo azul): nº de celdas y suma de las numéricas,
+  // al estilo de Excel. Funciona tanto para un rango como para una celda única.
+  const resumenSeleccion = (() => {
+    const valorCelda = (row, col) => {
+      if (!row || !col) return null;
+      let val = row[col.key];
+      if (col.key === "precionetounitario") val = calcNetoUnit(row);
+      else if (col.key === "precionetoposicion") val = calcNetoPos(row);
+      else if (col.key === "costeposicion") val = calcCostePos(row);
+      else if (col.key === "margen") val = calcMargen(row);
+      const n = Number(val);
+      return isNaN(n) ? null : n;
+    };
+    let celdas = 0;     // total de celdas en la selección
+    let numericas = 0;  // celdas con valor numérico
+    let suma = 0;
+    if (selectionRange) {
+      const minRow = Math.min(selectionRange.startRowIdx, selectionRange.endRowIdx);
+      const maxRow = Math.max(selectionRange.startRowIdx, selectionRange.endRowIdx);
+      const minCol = Math.min(selectionRange.startColIdx, selectionRange.endColIdx);
+      const maxCol = Math.max(selectionRange.startColIdx, selectionRange.endColIdx);
+      for (let r = minRow; r <= maxRow; r++) {
+        for (let c = minCol; c <= maxCol; c++) {
+          celdas++;
+          const n = valorCelda(rows[r], COLUMNS[c]);
+          if (n !== null) { numericas++; suma += n; }
+        }
+      }
+    } else if (selectedCell) {
+      celdas = 1;
+      const row = rows.find(rr => rr.id === selectedCell.rowId);
+      const col = COLUMNS.find(cc => cc.key === selectedCell.colKey);
+      const n = valorCelda(row, col);
+      if (n !== null) { numericas++; suma += n; }
+    }
+    return { celdas, numericas, suma };
+  })();
   const totalCoste = rows.reduce((s, r) => s + calcCostePos(r), 0);
   const margenTotal = totalNeto ? ((totalNeto - totalCoste) / totalNeto * 100) : 0;
 
@@ -9548,7 +9601,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.73.1 (4 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.76.2 (4 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9957,7 +10010,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.73.1 (4 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.76.2 (4 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
@@ -10638,7 +10691,13 @@ export default function App() {
       {/* Línea de información */}
       <div style={{ background: "#f5f5f5", color: "#525252", padding: "4px 16px", display: "flex", gap: 24, fontSize: 11, flexShrink: 0, borderTop: "1px solid #e5e5e5" }}>
         <span>Filas: <strong style={{ color: "#171717" }}>{rows.length}</strong></span>
-        <span>Seleccionadas: <strong style={{ color: "#171717" }}>{selectedRows.size}</strong></span>
+        <span>Marcadas: <strong style={{ color: "#171717" }}>{selectedRows.size}</strong></span>
+        {resumenSeleccion.celdas > 0 && (
+          <span>Celdas sel.: <strong style={{ color: "#171717" }}>{resumenSeleccion.celdas}</strong></span>
+        )}
+        {resumenSeleccion.numericas > 0 && (
+          <span>Suma: <strong style={{ color: "#171717" }}>{fmt(resumenSeleccion.suma)}</strong></span>
+        )}
         {selectedCell && <span>Celda: <strong style={{ color: "#171717" }}>{selectedCell.colKey} / fila {rows.findIndex(r => r.id === selectedCell.rowId) + 1}</strong></span>}
         <span style={{ marginLeft: "auto", fontSize: 11, color: "#737373" }}>Doble click para editar</span>
       </div>
