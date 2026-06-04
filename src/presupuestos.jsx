@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.78.0 (4 Junio 2026)
+// Versión: v1.79.0 (4 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.79.0 (4 Junio 2026) - Login obligatorio para acceder; bloqueo de 10 min tras 5 intentos fallidos
 //   v1.78.0 (4 Junio 2026) - Leer Presupuesto: añade 10 filas en blanco al final del presupuesto cargado
 //   v1.77.1 (4 Junio 2026) - Excel Imprimir: nombre del fichero usa numerocompleto + Rev.
 //   v1.77.0 (4 Junio 2026) - Apartado: al activar estructura se persiste la numeración (1.1, 1.1.2) en posicion y se vacía en S1-S4/TT/CM; al desactivar se mantiene
@@ -7767,6 +7768,23 @@ function LoginDialog({ onClose, onLoginOk }) {
 }
 
 // ── Pantalla de bienvenida / login ──
+// Constantes del control de intentos de login
+const LOGIN_MAX_INTENTOS = 5;
+const LOGIN_BLOQUEO_MS = 10 * 60 * 1000; // 10 minutos
+const LOGIN_STORAGE_KEY = "loginIntentos"; // { fallos: n, bloqueadoHasta: timestamp }
+
+function leerEstadoLogin() {
+  try {
+    const raw = localStorage.getItem(LOGIN_STORAGE_KEY);
+    if (!raw) return { fallos: 0, bloqueadoHasta: 0 };
+    const obj = JSON.parse(raw);
+    return { fallos: obj.fallos || 0, bloqueadoHasta: obj.bloqueadoHasta || 0 };
+  } catch { return { fallos: 0, bloqueadoHasta: 0 }; }
+}
+function guardarEstadoLogin(estado) {
+  try { localStorage.setItem(LOGIN_STORAGE_KEY, JSON.stringify(estado)); } catch {}
+}
+
 function WelcomeScreen({ onLogin }) {
   const [usuario, setUsuario] = useState("");
   const [password, setPassword] = useState("");
@@ -7774,11 +7792,46 @@ function WelcomeScreen({ onLogin }) {
   const [aviso, setAviso] = useState(null); // { tipo: "ok"|"error", texto: string }
   const [verificando, setVerificando] = useState(false);
 
+  // Control de intentos / bloqueo temporal
+  const [estadoLogin, setEstadoLogin] = useState(() => leerEstadoLogin());
+  const [ahora, setAhora] = useState(Date.now());
+
+  // Si está bloqueado, actualizar el reloj cada segundo para mostrar la cuenta atrás
+  useEffect(() => {
+    if (estadoLogin.bloqueadoHasta > Date.now()) {
+      const t = setInterval(() => setAhora(Date.now()), 1000);
+      return () => clearInterval(t);
+    }
+  }, [estadoLogin.bloqueadoHasta]);
+
+  const bloqueado = estadoLogin.bloqueadoHasta > ahora;
+  const minutosRestantes = bloqueado ? Math.ceil((estadoLogin.bloqueadoHasta - ahora) / 60000) : 0;
+  const segundosRestantes = bloqueado ? Math.ceil((estadoLogin.bloqueadoHasta - ahora) / 1000) : 0;
+
+  const registrarFallo = () => {
+    const fallos = estadoLogin.fallos + 1;
+    let nuevoEstado;
+    if (fallos >= LOGIN_MAX_INTENTOS) {
+      nuevoEstado = { fallos, bloqueadoHasta: Date.now() + LOGIN_BLOQUEO_MS };
+    } else {
+      nuevoEstado = { fallos, bloqueadoHasta: 0 };
+    }
+    setEstadoLogin(nuevoEstado);
+    guardarEstadoLogin(nuevoEstado);
+    return nuevoEstado;
+  };
+
   const submit = async (e) => {
     if (e && e.preventDefault) e.preventDefault();
-    // Si no hay usuario, simplemente pasar (login opcional)
+    // Si está bloqueado, no permitir intentar
+    if (estadoLogin.bloqueadoHasta > Date.now()) {
+      const min = Math.ceil((estadoLogin.bloqueadoHasta - Date.now()) / 60000);
+      setAviso({ tipo: "error", texto: `Demasiados intentos fallidos. Inténtalo de nuevo en ${min} minuto(s).` });
+      return;
+    }
+    // El usuario es obligatorio para acceder
     if (!usuario.trim()) {
-      onLogin();
+      setAviso({ tipo: "error", texto: "Introduce tu usuario y contraseña para acceder." });
       return;
     }
     setVerificando(true);
@@ -7793,22 +7846,30 @@ function WelcomeScreen({ onLogin }) {
       if (res.ok) {
         const data = await res.json();
         if (data.ok) {
+          // Login correcto: limpiar contador y entrar
+          const limpio = { fallos: 0, bloqueadoHasta: 0 };
+          setEstadoLogin(limpio);
+          guardarEstadoLogin(limpio);
           setAviso({ tipo: "ok", texto: `Login OK — bienvenido ${data.usuario}` });
           loginOk = data;
-        } else {
-          setAviso({ tipo: "error", texto: `Login KO — ${data.motivo || "credenciales incorrectas"}` });
+          setVerificando(false);
+          setTimeout(() => onLogin(loginOk), 700);
+          return;
         }
-      } else {
-        setAviso({ tipo: "error", texto: `Error servidor (${res.status})` });
       }
+      // Login fallido (credenciales incorrectas o error de servidor)
       setVerificando(false);
-      // Pase lo que pase, accedemos a la app tras un breve momento para que se vea el mensaje
-      // Si login OK, pasamos los datos del usuario para que se actualice la barra
-      setTimeout(() => onLogin(loginOk), 900);
+      const nuevoEstado = registrarFallo();
+      const restantes = LOGIN_MAX_INTENTOS - nuevoEstado.fallos;
+      if (nuevoEstado.bloqueadoHasta > Date.now()) {
+        setAviso({ tipo: "error", texto: `Demasiados intentos fallidos. Acceso bloqueado durante 10 minutos.` });
+      } else {
+        setAviso({ tipo: "error", texto: `Credenciales incorrectas. Te quedan ${restantes} intento(s).` });
+      }
     } catch (err) {
-      setAviso({ tipo: "error", texto: `No se pudo verificar: ${err.message}` });
+      // Error de red: NO consume intento (no es culpa de credenciales)
       setVerificando(false);
-      setTimeout(() => onLogin(null), 900);
+      setAviso({ tipo: "error", texto: `No se pudo verificar el login: ${err.message}` });
     }
   };
 
@@ -7934,27 +7995,27 @@ function WelcomeScreen({ onLogin }) {
         {/* Botón login */}
         <button
           type="button"
-          onClick={submit} disabled={verificando}
-          onMouseEnter={e => { e.currentTarget.style.background = "#bbf7d0"; e.currentTarget.style.borderColor = "#15803d"; }}
-          onMouseLeave={e => { e.currentTarget.style.background = "#dcfce7"; e.currentTarget.style.borderColor = "#16a34a"; }}
+          onClick={submit} disabled={verificando || bloqueado}
+          onMouseEnter={e => { if (!bloqueado && !verificando) { e.currentTarget.style.background = "#bbf7d0"; e.currentTarget.style.borderColor = "#15803d"; } }}
+          onMouseLeave={e => { if (!bloqueado && !verificando) { e.currentTarget.style.background = "#dcfce7"; e.currentTarget.style.borderColor = "#16a34a"; } }}
           style={{
             marginTop: 4,
             padding: "9px 16px",
             fontSize: 13,
             fontWeight: 600,
-            color: "#14532d",
-            background: "#dcfce7",
-            border: "1px solid #16a34a",
+            color: bloqueado ? "#991b1b" : "#14532d",
+            background: bloqueado ? "#fee2e2" : "#dcfce7",
+            border: `1px solid ${bloqueado ? "#fca5a5" : "#16a34a"}`,
             borderRadius: 6,
-            cursor: "pointer",
+            cursor: (bloqueado || verificando) ? "default" : "pointer",
             transition: "all 0.15s ease",
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
             gap: 6,
           }}>
-          <Icon as={verificando ? RefreshCw : Check} size={14} color="#14532d" />
-          {verificando ? "Verificando..." : "Login"}
+          <Icon as={verificando ? RefreshCw : (bloqueado ? Lock : Check)} size={14} color={bloqueado ? "#991b1b" : "#14532d"} />
+          {verificando ? "Verificando..." : bloqueado ? (minutosRestantes > 1 ? `Bloqueado (${minutosRestantes} min)` : `Bloqueado (${segundosRestantes} s)`) : "Login"}
         </button>
       </div>
     </div>
@@ -9619,7 +9680,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.78.0 (4 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.79.0 (4 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -10013,12 +10074,12 @@ export default function App() {
   // ── VISTA GRID ──
   // ── Pantalla de bienvenida ──
   if (showWelcome) {
+    // Solo se entra a la app con un login correcto (userInfo con usuario válido)
     const entrar = (userInfo) => {
+      if (!userInfo || !userInfo.usuario) return; // sin login válido no se accede
       try { sessionStorage.setItem("welcomeShown", "1"); } catch {}
-      if (userInfo && userInfo.usuario) {
-        setUsuarioActual(userInfo.usuario);
-        if (userInfo.codigopresupuestos) setCodigoUsuario(userInfo.codigopresupuestos);
-      }
+      setUsuarioActual(userInfo.usuario);
+      if (userInfo.codigopresupuestos) setCodigoUsuario(userInfo.codigopresupuestos);
       setShowWelcome(false);
     };
     return <WelcomeScreen onLogin={entrar} />;
@@ -10028,7 +10089,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.78.0 (4 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.79.0 (4 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
