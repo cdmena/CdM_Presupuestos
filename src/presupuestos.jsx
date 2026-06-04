@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.72.2 (4 Junio 2026)
+// Versión: v1.72.4 (4 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.72.4 (4 Junio 2026) - Buscar Ref SIEMENS: ignora espacios; detecta refs pegadas sin guiones (bloque base no bloquea la versión larga)
+//   v1.72.3 (4 Junio 2026) - Buscar Ref SIEMENS: ignora espacios al detectar (refs partidas por espacios) y mapea posiciones al texto original para el resaltado
 //   v1.72.2 (4 Junio 2026) - Fix Buscar Ref SIEMENS: la última referencia aceptada se perdía (estado asíncrono); ahora se aplica correctamente
 //   v1.72.1 (4 Junio 2026) - Si la API local no responde al iniciar, muestra diálogo de aviso que el usuario debe aceptar
 //   v1.72.0 (4 Junio 2026) - Al iniciar comprueba que la API local está viva (GET /); indicador verde/rojo en barra de estado
@@ -7430,34 +7432,58 @@ function buildNumeroCompleto(codigo, numero, ano) {
 // ────────────────────────────────────────────────────────────────
 function parseSiemensRefs(textoOriginal) {
   if (!textoOriginal) return [];
-  const texto = String(textoOriginal);
+  const original = String(textoOriginal);
+
+  // Trabajamos sobre una versión SIN espacios (ni tabs/saltos) para que las referencias
+  // partidas por espacios (ej. "6SL3210 -1KE21 -3UF1") se detecten igualmente.
+  // Mantenemos un mapa de cada posición del texto-sin-espacios a su posición en el original,
+  // para poder resaltar correctamente la referencia dentro del texto que ve el usuario.
+  const texto = [];        // caracteres sin espacios
+  const mapaIdx = [];      // mapaIdx[i] = posición en 'original' del carácter texto[i]
+  for (let i = 0; i < original.length; i++) {
+    if (/\s/.test(original[i])) continue; // saltar cualquier espacio en blanco
+    texto.push(original[i]);
+    mapaIdx.push(i);
+  }
+  const textoSinEsp = texto.join("");
+  if (!textoSinEsp) return [];
+
   const encontradas = [];
-  const yaUsados = new Set();   // intervalos ya consumidos
+  const yaUsados = new Set();   // intervalos ya consumidos (en índices de textoSinEsp)
+
+  // Devuelve {iniOrig, finOrig, original} mapeando un match de textoSinEsp al texto original
+  const mapearAOriginal = (iniSinEsp, finSinEsp) => {
+    const iniOrig = mapaIdx[iniSinEsp];
+    const finOrig = mapaIdx[finSinEsp - 1] + 1; // posición original del último carácter + 1
+    return { iniOrig, finOrig, original: original.substring(iniOrig, finOrig) };
+  };
 
   // Patrón con guiones: 1 dígito, 2 letras, 4 dígitos seguido opcionalmente de más bloques
-  // Captura la versión más larga posible que cumpla el formato
-  const reConGuion = /\b\d[A-Z]{2}\d{4}(?:-\d(?:[A-Z]{1,2}(?:\d{1,2}(?:-\d(?:[A-Z]{1,2}(?:\d)?)?)?)?)?)?\b/g;
+  const reConGuion = /\d[A-Z]{2}\d{4}(?:-\d(?:[A-Z]{1,2}(?:\d{1,2}(?:-\d(?:[A-Z]{1,2}(?:\d)?)?)?)?)?)?/g;
   let m;
-  while ((m = reConGuion.exec(texto)) !== null) {
+  while ((m = reConGuion.exec(textoSinEsp)) !== null) {
     const ini = m.index, fin = m.index + m[0].length;
-    encontradas.push({ ref: m[0].toUpperCase(), original: m[0], index: ini });
+    // Si solo capturó el bloque base (7 chars, sin guiones) y justo después hay más
+    // caracteres alfanuméricos, es una ref pegada sin guiones: la dejamos para el patrón siguiente.
+    const soloBase = !m[0].includes("-") && m[0].length === 7;
+    const siguienteEsAlfaNum = fin < textoSinEsp.length && /[0-9A-Z]/.test(textoSinEsp[fin]);
+    if (soloBase && siguienteEsAlfaNum) continue;
+    const mp = mapearAOriginal(ini, fin);
+    encontradas.push({ ref: m[0].toUpperCase(), original: mp.original, index: mp.iniOrig });
     for (let k = ini; k < fin; k++) yaUsados.add(k);
   }
 
-  // Patrón sin guiones: 1 dígito + 2 letras + 4 dígitos + entre 0 y 9 caracteres alfanuméricos
-  // Estos los aceptamos si NO solapan con los ya encontrados
-  const reSinGuion = /\b\d[A-Z]{2}\d{4}[0-9A-Z]{0,11}\b/g;
-  while ((m = reSinGuion.exec(texto)) !== null) {
+  // Patrón sin guiones: 1 dígito + 2 letras + 4 dígitos + caracteres alfanuméricos
+  const reSinGuion = /\d[A-Z]{2}\d{4}[0-9A-Z]{0,11}/g;
+  while ((m = reSinGuion.exec(textoSinEsp)) !== null) {
     const ini = m.index, fin = m.index + m[0].length;
-    // Comprobar no solapamiento
     let solapa = false;
     for (let k = ini; k < fin; k++) { if (yaUsados.has(k)) { solapa = true; break; } }
     if (solapa) continue;
-    // Si tiene guiones internos saltamos (ya capturado por el otro patrón)
     if (m[0].includes("-")) continue;
-    // Si tiene >= 10 caracteres lo añadimos como ref sin guiones
     if (m[0].length >= 10) {
-      encontradas.push({ ref: m[0].toUpperCase(), original: m[0], index: ini });
+      const mp = mapearAOriginal(ini, fin);
+      encontradas.push({ ref: m[0].toUpperCase(), original: mp.original, index: mp.iniOrig });
       for (let k = ini; k < fin; k++) yaUsados.add(k);
     }
   }
@@ -9513,7 +9539,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.72.2 (4 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.72.4 (4 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9922,7 +9948,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.72.2 (4 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.72.4 (4 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
