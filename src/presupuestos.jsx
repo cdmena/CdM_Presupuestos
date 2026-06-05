@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.79.0 (4 Junio 2026)
+// Versión: v1.82.0 (5 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,10 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.82.0 (5 Junio 2026) - Grid: tooltip con descripción en celdas de grupodescuento/familia/subfamilia con contenido
+//   v1.81.0 (5 Junio 2026) - Comprobar Celda: muestra nº caracteres + color fondo/tinta de la celda; quitado "Ver Familia" del menú
+//   v1.80.0 (5 Junio 2026) - Borrar filas con 0: usa la columna seleccionada (una sola); borra filas con 0 en esa columna
+//   v1.79.1 (5 Junio 2026) - Tooltip de "Calcular Descuento" más específico
 //   v1.79.0 (4 Junio 2026) - Login obligatorio para acceder; bloqueo de 10 min tras 5 intentos fallidos
 //   v1.78.0 (4 Junio 2026) - Leer Presupuesto: añade 10 filas en blanco al final del presupuesto cargado
 //   v1.77.1 (4 Junio 2026) - Excel Imprimir: nombre del fichero usa numerocompleto + Rev.
@@ -3336,10 +3340,9 @@ const MENU_STRUCTURE = [
     { label: "Comparar Presupuestos", action: "CompararPresupuestos", icon: Scale, tooltip: "Compara dos presupuestos línea a línea" },
   ]},
   { id: "celdas", icon: Grid3x3, label: "Celdas", tooltip: "Operaciones sobre celdas y filas del grid", items: [
-    { label: "Comprobar Celda", action: "ComprobarCelda", icon: Search, tooltip: "Comprueba en BD la referencia de la celda seleccionada" },
+    { label: "Comprobar Celda", action: "ComprobarCelda", icon: Search, tooltip: "Muestra nº de caracteres, color de fondo y color de tinta de la celda seleccionada" },
     { label: "Borrar filas vacías", action: "BorrarFilas", icon: Trash2, tooltip: "Elimina las filas completamente vacías del grid" },
-    { label: "Ver Familia", action: "VerFamilia", icon: Eye, tooltip: "Muestra familia y subfamilia de los productos del presupuesto" },
-    { label: "Borrar filas con 0", action: "BorrarFilasCero", icon: Trash2, tooltip: "Elimina las filas cuya cantidad es 0" },
+    { label: "Borrar filas con 0", action: "BorrarFilasCero", icon: Trash2, tooltip: "Borra las filas que tienen 0 en la columna seleccionada (rectángulo azul, una sola columna)" },
     { label: "Seleccionar Celdas", action: "SeleccionarCeldas", icon: Square, tooltip: "Selecciona un rango de celdas para operar sobre ellas" },
     { label: "Convertir selección en comentario", action: "ConvertirEnComentario", icon: MessageSquare, tooltip: "Convierte las filas seleccionadas en líneas de comentario (CM)" },
     { label: "Juntar celdas en una", action: "JuntarCeldas", icon: Link2, tooltip: "Une el contenido de varias celdas en una sola" },
@@ -3368,7 +3371,7 @@ const MENU_STRUCTURE = [
   ]},
   { id: "descuentos", icon: Percent, label: "Descuentos", tooltip: "Aplicar y calcular descuentos y precios", items: [
     { label: "Aplicar descuentos", action: "AplicarDescuentos", icon: DollarSign, tooltip: "Aplica un porcentaje de descuento a las celdas seleccionadas" },
-    { label: "Calcular Descuento", action: "CalcularDescuento", icon: Calculator, tooltip: "Calcula el descuento entre dos precios" },
+    { label: "Calcular Descuento", action: "CalcularDescuento", icon: Calculator, tooltip: "Calcular el descuento para obtener precio neto seleccionado en las filas seleccionadas" },
     { label: "Fijar el precio total", action: "FijarPrecioTotal", icon: Target, tooltip: "Ajusta los descuentos para alcanzar un precio total objetivo" },
     { label: "Fijar precio de celdas", action: "FijarPrecioCeldas", icon: Hash, tooltip: "Fija el precio neto de las celdas seleccionadas" },
   ]},
@@ -8505,6 +8508,10 @@ export default function App() {
   const [leerPmdDialog, setLeerPmdDialog] = useState(null); // {referencia, rowIdx}
   const [paisesList, setPaisesList] = useState([]); // [{id, codigo_iso2, pais, prefijo_telefonico}]
   const [apiLocalViva, setApiLocalViva] = useState(null); // null = sin comprobar, true = viva, false = no responde
+  // Mapas nombre→descripción para los tooltips de las columnas grupodescuento/familia/subfamilia
+  const [descGrupos, setDescGrupos] = useState({});       // { "NOMBRE": "descripción" }
+  const [descFamilias, setDescFamilias] = useState({});
+  const [descSubfamilias, setDescSubfamilias] = useState({});
   const [showApiLocalAviso, setShowApiLocalAviso] = useState(false); // diálogo de aviso cuando la API local no responde
   // Configuraciones varias (persistidas en fichero JSON que el usuario guarda/lee)
   const [configVarias, setConfigVarias] = useState({
@@ -8526,6 +8533,7 @@ export default function App() {
   const [showSeleccionar, setShowSeleccionar] = useState(false);
   const [showFijarPrecio, setShowFijarPrecio] = useState(null); // null | "total" | "celdas"
   const [showBorrarVacias, setShowBorrarVacias] = useState(false);
+  const [infoCeldaDialog, setInfoCeldaDialog] = useState(null); // { caracteres, bg, color, colKey, fila } | null
   const [showGuardarElem, setShowGuardarElem] = useState(false);
   const [showLeerElem, setShowLeerElem] = useState(false);
   const [showLeerProducto, setShowLeerProducto] = useState(false);
@@ -8549,6 +8557,32 @@ export default function App() {
         setStatusMessage(s => s.timestamp === ts ? { text: "Listo", type: "info", timestamp: null } : s);
       }, 5000);
     }
+  }, []);
+
+  // Cargar descripciones de grupos descuento, familias y subfamilias (para tooltips del grid)
+  useEffect(() => {
+    const norm = s => String(s || "").trim().toUpperCase();
+    fetch(`${API_URL}/gruposdescuento/`).then(r => r.ok ? r.json() : []).then(data => {
+      if (Array.isArray(data)) {
+        const m = {};
+        data.forEach(g => { if (g.grupodescuentospain) m[norm(g.grupodescuentospain)] = g.descripcion || ""; });
+        setDescGrupos(m);
+      }
+    }).catch(() => {});
+    fetch(`${API_URL}/familias/`).then(r => r.ok ? r.json() : []).then(data => {
+      if (Array.isArray(data)) {
+        const m = {};
+        data.forEach(f => { if (f.familia) m[norm(f.familia)] = f.descripcion || ""; });
+        setDescFamilias(m);
+      }
+    }).catch(() => {});
+    fetch(`${API_URL}/subfamilias/`).then(r => r.ok ? r.json() : []).then(data => {
+      if (Array.isArray(data)) {
+        const m = {};
+        data.forEach(sf => { if (sf.subfamilia) m[norm(sf.subfamilia)] = sf.descripcion || ""; });
+        setDescSubfamilias(m);
+      }
+    }).catch(() => {});
   }, []);
 
   // Comprobar al iniciar que la API local (CdM_Presupuestos_API_local.py) está viva
@@ -8839,6 +8873,95 @@ export default function App() {
     if (action === "SeleccionarCeldas") { setShowSeleccionar(true); return; }
     if (action === "FijarPrecioTotal") { setShowFijarPrecio("total"); return; }
     if (action === "FijarPrecioCeldas") { setShowFijarPrecio("celdas"); return; }
+    if (action === "ComprobarCelda") {
+      // Muestra info de la celda seleccionada: nº de caracteres, color de fondo y color de tinta.
+      if (!selectedCell) {
+        setStatus("Selecciona una celda (rectángulo azul) para comprobarla", "error");
+        return;
+      }
+      const row = rows.find(r => r.id === selectedCell.rowId);
+      if (!row) { setStatus("No se encuentra la fila seleccionada", "error"); return; }
+      const col = COLUMNS.find(c => c.key === selectedCell.colKey);
+      // Valor mostrado de la celda (texto) para contar caracteres
+      let valorTexto = row[selectedCell.colKey];
+      if (valorTexto == null) valorTexto = "";
+      const caracteres = String(valorTexto).length;
+      // Estilo aplicado a la celda (depende de estructura activa y naturaleza)
+      const estilo = estructuraActiva
+        ? getEstiloFila(row.naturaleza, estilos)
+        : { bg: null, color: "#1e293b" };
+      const bg = estilo.bg || "#ffffff";
+      const color = estilo.color || "#1e293b";
+      const filaNum = rows.findIndex(r => r.id === selectedCell.rowId) + 1;
+      setInfoCeldaDialog({
+        caracteres,
+        bg,
+        color,
+        colKey: col ? col.label : selectedCell.colKey,
+        fila: filaNum,
+        contenido: String(valorTexto),
+      });
+      return;
+    }
+    if (action === "BorrarFilasCero") {
+      // Borra las filas que tengan 0 en la columna seleccionada (rectángulo azul).
+      // La selección debe ser de una sola columna.
+      let colKey = null;
+      let colIdx = -1;
+      let filasIdx = [];
+      if (selectionRange) {
+        const colIniS = Math.min(selectionRange.startColIdx, selectionRange.endColIdx);
+        const colFinS = Math.max(selectionRange.startColIdx, selectionRange.endColIdx);
+        if (colIniS !== colFinS) {
+          setStatus("Selecciona celdas de una sola columna para borrar filas con 0", "error");
+          return;
+        }
+        colIdx = colIniS;
+        colKey = COLUMNS[colIdx]?.key;
+        const rIni = Math.min(selectionRange.startRowIdx, selectionRange.endRowIdx);
+        const rFin = Math.max(selectionRange.startRowIdx, selectionRange.endRowIdx);
+        for (let r = rIni; r <= rFin; r++) if (rows[r]) filasIdx.push(r);
+      } else if (selectedCell) {
+        colKey = selectedCell.colKey;
+        colIdx = COLUMNS.findIndex(c => c.key === colKey);
+        const rIdx = rows.findIndex(r => r.id === selectedCell.rowId);
+        if (rIdx >= 0) filasIdx.push(rIdx);
+      } else {
+        setStatus("Selecciona una celda o columna (rectángulo azul) para borrar filas con 0", "error");
+        return;
+      }
+      if (!colKey) {
+        setStatus("No se pudo determinar la columna seleccionada", "error");
+        return;
+      }
+      // Valor numérico de la columna para cada fila (incluye columnas calculadas)
+      const valorCol = (row) => {
+        let v = row[colKey];
+        if (colKey === "precionetounitario") v = calcNetoUnit(row);
+        else if (colKey === "precionetoposicion") v = calcNetoPos(row);
+        else if (colKey === "costeposicion") v = calcCostePos(row);
+        else if (colKey === "margen") v = calcMargen(row);
+        const n = Number(String(v).replace(",", "."));
+        return isNaN(n) ? null : n;
+      };
+      // IDs de las filas a borrar: las seleccionadas cuyo valor en la columna sea 0
+      const idsBorrar = new Set();
+      filasIdx.forEach(r => {
+        const row = rows[r];
+        if (!row) return;
+        if (valorCol(row) === 0) idsBorrar.add(row.id);
+      });
+      if (idsBorrar.size === 0) {
+        setStatus(`No hay filas con 0 en la columna "${colKey}" dentro de la selección`, "info");
+        return;
+      }
+      setRows(rs => rs.filter(r => !idsBorrar.has(r.id)));
+      setSelectedRows(new Set());
+      setSelectionRange(null);
+      setSelectedCell(null);
+      setStatus(`${idsBorrar.size} fila(s) con 0 en "${colKey}" borrada(s)`, "success");
+      return;
+    }
     if (action === "BorrarFilas") { setShowBorrarVacias(true); return; }
     if (action === "BorrarPresupuestoActual") { setConfirmBorrarPresup(true); return; }
     if (action === "ComprobarPresupuesto") {
@@ -9680,7 +9803,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.79.0 (4 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.82.0 (5 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -9929,10 +10052,9 @@ export default function App() {
                 { op: "Comparar Presupuestos",  desc: "Compara dos presupuestos línea a línea." },
               ]},
               { id: "m-celdas", titulo: "Menú Celdas", color: "#171717", items: [
-                { op: "Comprobar Celda",              desc: "Comprueba el formato de la celda seleccionada." },
+                { op: "Comprobar Celda",              desc: "Muestra nº de caracteres y colores (fondo/tinta) de la celda seleccionada." },
                 { op: "Borrar filas vacías",          desc: "Abre un diálogo donde seleccionas una columna. Se borran las filas marcadas con checkbox que tengan esa columna vacía. Pide confirmación indicando cuántas se borrarán." },
                 { op: "Juntar Duplicadas",            desc: "Agrupa líneas con la misma referencia sumando cantidades." },
-                { op: "Ver Familia",                  desc: "Muestra la familia del producto seleccionado." },
                 { op: "Borrar filas con 0",           desc: "Elimina líneas con cantidad o importe cero." },
                 { op: "Seleccionar Celdas",           desc: "Abre un diálogo para marcar el checkbox de un rango de filas (desde fila X hasta fila Y)." },
                 { op: "Convertir fila en comentario", desc: "Cambia la naturaleza de la fila a CM." },
@@ -10089,7 +10211,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.79.0 (4 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.82.0 (5 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
@@ -10399,6 +10521,16 @@ export default function App() {
                     const inRange = isCellInRange(rowIdx, colIdx);
                     return (
                       <td key={col.key}
+                        title={(() => {
+                          // Tooltip con la descripción para grupodescuento/familia/subfamilia (si tienen contenido)
+                          const v = String(row[col.key] ?? "").trim();
+                          if (!v) return undefined;
+                          const k = v.toUpperCase();
+                          if (col.key === "grupodescuento") return descGrupos[k] ? `${v} — ${descGrupos[k]}` : undefined;
+                          if (col.key === "familia") return descFamilias[k] ? `${v} — ${descFamilias[k]}` : undefined;
+                          if (col.key === "subfamilia") return descSubfamilias[k] ? `${v} — ${descSubfamilias[k]}` : undefined;
+                          return undefined;
+                        })()}
                         onMouseDown={e => {
                           // Si esta celda ya está en edición, no interferir (permitir seleccionar texto en el input)
                           if (isEditing) return;
@@ -11379,6 +11511,45 @@ export default function App() {
             setStatus(`Cliente seleccionado: ${nombre}`, "success");
           }}
         />
+      )}
+      {infoCeldaDialog && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100001 }}
+          onClick={() => setInfoCeldaDialog(null)}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", maxWidth: 420, boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <Icon as={Search} size={22} color="#2563eb" />
+              <h3 style={{ fontSize: 15, fontWeight: 700, color: "#171717", margin: 0 }}>Comprobar celda</h3>
+            </div>
+            <div style={{ fontSize: 13, color: "#475569", lineHeight: 1.8 }}>
+              <div><strong>Celda:</strong> {infoCeldaDialog.colKey} / fila {infoCeldaDialog.fila}</div>
+              <div><strong>Nº de caracteres:</strong> {infoCeldaDialog.caracteres}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <strong>Color de fondo:</strong>
+                <span style={{ display: "inline-block", width: 16, height: 16, borderRadius: 3, border: "1px solid #cbd5e1", background: infoCeldaDialog.bg }} />
+                <span style={{ fontFamily: "monospace" }}>{infoCeldaDialog.bg}</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <strong>Color de tinta:</strong>
+                <span style={{ display: "inline-block", width: 16, height: 16, borderRadius: 3, border: "1px solid #cbd5e1", background: infoCeldaDialog.color }} />
+                <span style={{ fontFamily: "monospace" }}>{infoCeldaDialog.color}</span>
+              </div>
+              {/* Previsualización del contenido con sus colores */}
+              <div style={{ marginTop: 10 }}>
+                <strong>Vista:</strong>
+                <div style={{ marginTop: 4, padding: "6px 10px", borderRadius: 4, border: "1px solid #cbd5e1", background: infoCeldaDialog.bg, color: infoCeldaDialog.color, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 120, overflow: "auto" }}>
+                  {infoCeldaDialog.contenido || "(vacía)"}
+                </div>
+              </div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+              <button onClick={() => setInfoCeldaDialog(null)}
+                style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: "#2563eb", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {showApiLocalAviso && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100001 }}>
