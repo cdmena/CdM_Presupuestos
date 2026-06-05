@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.82.0 (5 Junio 2026)
+// Versión: v1.84.0 (5 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,9 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.84.0 (5 Junio 2026) - Leer Producto: columnas redimensionables arrastrando los separadores de la cabecera
+//   v1.83.1 (5 Junio 2026) - Redimensión de columnas: zona de agarre más ancha y visible (azul al pasar), doble clic restablece ancho
+//   v1.83.0 (5 Junio 2026) - Leer Producto: nueva columna "Grupo Dto." con el nombre del grupo descuento (no el id)
 //   v1.82.0 (5 Junio 2026) - Grid: tooltip con descripción en celdas de grupodescuento/familia/subfamilia con contenido
 //   v1.81.0 (5 Junio 2026) - Comprobar Celda: muestra nº caracteres + color fondo/tinta de la celda; quitado "Ver Familia" del menú
 //   v1.80.0 (5 Junio 2026) - Borrar filas con 0: usa la columna seleccionada (una sola); borra filas con 0 en esa columna
@@ -6448,6 +6451,46 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus }) {
   const [borrando, setBorrando] = useState(false);
   const [comprobandoUso, setComprobandoUso] = useState(false);
 
+  // Anchos de columna redimensionables (clave → px). Por defecto los iniciales.
+  const ANCHOS_INI = { masusado: 70, referencia: 150, pvp: 90, grupodescuento: 140, descripcion: 320, id: 60 };
+  const [anchosCol, setAnchosCol] = useState(ANCHOS_INI);
+  const resizeRef = useRef(null);
+  const onResizeCol = (e, key) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = anchosCol[key] ?? 100;
+    resizeRef.current = { key, startX, startW };
+    const onMove = (ev) => {
+      if (!resizeRef.current) return;
+      const { key: k, startX: sx, startW: sw } = resizeRef.current;
+      const nuevo = Math.max(40, sw + (ev.clientX - sx));
+      setAnchosCol(prev => ({ ...prev, [k]: nuevo }));
+    };
+    const onUp = () => {
+      resizeRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+  // Componente del tirador de redimensión en el borde derecho de una cabecera
+  const Resizer = ({ colKey }) => (
+    <div
+      onMouseDown={(e) => onResizeCol(e, colKey)}
+      onDoubleClick={(e) => { e.stopPropagation(); setAnchosCol(prev => ({ ...prev, [colKey]: ANCHOS_INI[colKey] })); }}
+      title="Arrastra para redimensionar (doble clic para restablecer)"
+      onMouseEnter={e => { e.currentTarget.style.background = "#2563eb"; }}
+      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+      style={{ position: "absolute", top: 0, right: -4, width: 9, height: "100%", cursor: "col-resize", zIndex: 6, transition: "background 0.1s" }}
+    />
+  );
+
   useEffect(() => {
     const t = setTimeout(() => cargarLista(), 300);
     return () => clearTimeout(t);
@@ -6588,23 +6631,24 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus }) {
 
         {/* Tabla */}
         <div style={{ flex: 1, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 6, marginBottom: 12, minHeight: 250 }}>
-          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, tableLayout: "fixed" }}>
             <thead style={{ position: "sticky", top: 0, background: "#fafafa", zIndex: 1, borderBottom: "1px solid #e5e5e5" }}>
               <tr>
                 <th style={{ width: 32, padding: "8px 6px", color: "#171717" }}></th>
-                <th style={{ padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }} title="Más usado">Más Us.</th>
-                <th style={{ padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>Referencia</th>
-                <th style={{ padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>PVP</th>
-                <th style={{ padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>Descripción</th>
-                <th style={{ padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>ID</th>
+                <th style={{ position: "relative", width: anchosCol.masusado, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }} title="Más usado">Más Us.<Resizer colKey="masusado" /></th>
+                <th style={{ position: "relative", width: anchosCol.referencia, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>Referencia<Resizer colKey="referencia" /></th>
+                <th style={{ position: "relative", width: anchosCol.pvp, padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>PVP<Resizer colKey="pvp" /></th>
+                <th style={{ position: "relative", width: anchosCol.grupodescuento, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>Grupo Dto.<Resizer colKey="grupodescuento" /></th>
+                <th style={{ position: "relative", width: anchosCol.descripcion, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>Descripción<Resizer colKey="descripcion" /></th>
+                <th style={{ position: "relative", width: anchosCol.id, padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>ID</th>
               </tr>
             </thead>
             <tbody>
               {cargando && (
-                <tr><td colSpan={6} style={{ padding: "30px", textAlign: "center", color: "#64748b" }}>Cargando...</td></tr>
+                <tr><td colSpan={7} style={{ padding: "30px", textAlign: "center", color: "#64748b" }}>Cargando...</td></tr>
               )}
               {!cargando && productos.length === 0 && !error && (
-                <tr><td colSpan={6} style={{ padding: "30px", textAlign: "center", color: "#94a3b8" }}>
+                <tr><td colSpan={7} style={{ padding: "30px", textAlign: "center", color: "#94a3b8" }}>
                   {busqueda ? "No hay productos que coincidan." : "No hay productos en la base de datos."}
                 </td></tr>
               )}
@@ -6623,8 +6667,10 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus }) {
                     <td style={{ padding: "5px 10px", textAlign: "right", color: "#0369a1", fontWeight: 500, whiteSpace: "nowrap" }}>
                       {(Number(p.pvp) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                     </td>
-                    <td style={{ padding: "5px 10px", color: "#475569", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 400 }}
-                      title={p.descripcion || ""}>
+                    <td style={{ padding: "5px 10px", color: "#475569", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 160 }}
+                      title={p.descripciongrupodescuento || p.grupodescuento || ""}>
+                      {p.grupodescuento || ""}
+                    </td>
                       {p.descripcion || p.nombre || ""}
                     </td>
                     <td style={{ padding: "5px 10px", textAlign: "right", color: "#94a3b8", fontFamily: "monospace", whiteSpace: "nowrap" }}>{p.id}</td>
@@ -9803,7 +9849,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.82.0 (5 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.84.0 (5 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -10211,7 +10257,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.82.0 (5 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.84.0 (5 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
@@ -10428,8 +10474,11 @@ export default function App() {
                   {/* Resizer del borde derecho */}
                   <div
                     onMouseDown={(e) => onResizeStart(e, "col", col.key, w)}
-                    title="Arrastra para redimensionar la columna"
-                    style={{ position: "absolute", top: 0, right: -3, width: 6, height: "100%", cursor: "col-resize", zIndex: 5 }}
+                    onDoubleClick={(e) => { e.stopPropagation(); setAnchosManual(prev => { const n = { ...prev }; delete n[col.key]; return n; }); }}
+                    title="Arrastra para redimensionar la columna (doble clic para restablecer)"
+                    onMouseEnter={e => { e.currentTarget.style.background = "#2563eb"; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+                    style={{ position: "absolute", top: 0, right: -4, width: 9, height: "100%", cursor: "col-resize", zIndex: 6, transition: "background 0.1s" }}
                   />
                 </th>
                 );
