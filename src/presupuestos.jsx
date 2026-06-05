@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.84.2 (5 Junio 2026)
+// Versión: v1.84.3 (5 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.84.3 (5 Junio 2026) - Nombre de fichero Excel de Exportar y Formato Simple Quote usa numerocompleto (no número)
 //   v1.84.2 (5 Junio 2026) - Leer Producto: la celda Referencia recorta con ... y tooltip si el texto no cabe (no se sale sobre otras columnas)
 //   v1.84.1 (5 Junio 2026) - Fix build: celda Descripción en Leer Producto había perdido su <td> de apertura (error JSX)
 //   v1.84.0 (5 Junio 2026) - Leer Producto: columnas redimensionables arrastrando los separadores de la cabecera
@@ -4462,7 +4463,8 @@ function exportarDatosExcel(presupuesto, rows) {
   const calcMargen   = (row) => { const n = calcNetoPos(row), c = calcCostePos(row); return n ? ((n - c) / n) * 100 : 0; };
   const fmt = (n) => isNaN(n) ? 0 : Math.round((n || 0) * 100) / 100;
 
-  const nombreFichero = `Datos Presupuesto ${presupuesto.np} - ${presupuesto.titulo} - ${presupuesto.cliente}`
+  const numCompletoFich = presupuesto.numerocompleto || presupuesto.np || "";
+  const nombreFichero = `Datos Presupuesto ${numCompletoFich} - ${presupuesto.titulo} - ${presupuesto.cliente}`
     .replace(/[\\/:*?"<>|]/g, "-");
 
   // Filtrar solo filas de productos
@@ -8896,7 +8898,7 @@ export default function App() {
         const ws = XLSX.utils.aoa_to_sheet(aoa);
         const wb = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(wb, ws, "SimpleQuote");
-        const nombreFichero = `SimpleQuote ${presupuesto.np || ""} - ${presupuesto.titulo || "presupuesto"}`
+        const nombreFichero = `SimpleQuote ${presupuesto.numerocompleto || presupuesto.np || ""} - ${presupuesto.titulo || "presupuesto"}`
           .replace(/[\\/:*?"<>|]/g, "").trim() + ".xlsx";
         descargarXLSX(wb, nombreFichero);
         setStatus(`Simple Quote generado con ${productos.length} producto${productos.length !== 1 ? "s" : ""}`, "success");
@@ -9853,7 +9855,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.84.2 (5 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.84.3 (5 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -10261,7 +10263,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.84.2 (5 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.84.3 (5 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
