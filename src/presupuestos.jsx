@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.84.0 (5 Junio 2026)
+// Versión: v1.84.1 (5 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.84.1 (5 Junio 2026) - Fix build: celda Descripción en Leer Producto había perdido su <td> de apertura (error JSX)
 //   v1.84.0 (5 Junio 2026) - Leer Producto: columnas redimensionables arrastrando los separadores de la cabecera
 //   v1.83.1 (5 Junio 2026) - Redimensión de columnas: zona de agarre más ancha y visible (azul al pasar), doble clic restablece ancho
 //   v1.83.0 (5 Junio 2026) - Leer Producto: nueva columna "Grupo Dto." con el nombre del grupo descuento (no el id)
@@ -6667,13 +6668,15 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus }) {
                     <td style={{ padding: "5px 10px", textAlign: "right", color: "#0369a1", fontWeight: 500, whiteSpace: "nowrap" }}>
                       {(Number(p.pvp) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
                     </td>
-                    <td style={{ padding: "5px 10px", color: "#475569", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 160 }}
+                    <td style={{ padding: "5px 10px", color: "#475569", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
                       title={p.descripciongrupodescuento || p.grupodescuento || ""}>
                       {p.grupodescuento || ""}
                     </td>
+                    <td style={{ padding: "5px 10px", color: "#475569", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                      title={p.descripcion || ""}>
                       {p.descripcion || p.nombre || ""}
                     </td>
-                    <td style={{ padding: "5px 10px", textAlign: "right", color: "#94a3b8", fontFamily: "monospace", whiteSpace: "nowrap" }}>{p.id}</td>
+                    <td style={{ padding: "5px 10px", textAlign: "right", color: "#94a3b8", fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.id}</td>
                   </tr>
                 );
               })}
@@ -9849,7 +9852,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.84.0 (5 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.84.1 (5 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -10257,7 +10260,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.84.0 (5 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.84.1 (5 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
