@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.84.3 (5 Junio 2026)
+// Versión: v1.88.0 (6 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,10 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.88.0 (6 Junio 2026) - Excel Imprimir: representación "TP" (Total Posición) → cantidad 1 y neto unitario = total posición (solo en la impresión)
+//   v1.87.0 (6 Junio 2026) - Excel Imprimir: representación "conf" aplica estilo CONF a la fila y escribe "A confirmar por el cliente" en columna I (justificado)
+//   v1.86.0 (6 Junio 2026) - Configurar Estilos: nuevos estilos PD (producto normal) y CONF (Confirmar por el cliente), configurables
+//   v1.85.0 (6 Junio 2026) - PVP en rojo si fechapvp > 1 año (al buscar datos/leer producto); tooltips de fechapvp y fechapreciocoste; se limpia al aplicar estructura
 //   v1.84.3 (5 Junio 2026) - Nombre de fichero Excel de Exportar y Formato Simple Quote usa numerocompleto (no número)
 //   v1.84.2 (5 Junio 2026) - Leer Producto: la celda Referencia recorta con ... y tooltip si el texto no cabe (no se sale sobre otras columnas)
 //   v1.84.1 (5 Junio 2026) - Fix build: celda Descripción en Leer Producto había perdido su <td> de apertura (error JSX)
@@ -197,6 +201,8 @@ const NATURALEZAS_CON_ESTILO = [
   { key: "CM", label: "CM - Comentario" },
   { key: "VERDE", label: "VERDE - Línea resaltada verde" },
   { key: "GRIS",  label: "GRIS - Línea resaltada gris" },
+  { key: "PD",    label: "PD - Producto normal" },
+  { key: "CONF",  label: "CONF - Confirmar por el cliente" },
 ];
 
 const OPCIONES_MENU = [
@@ -3461,6 +3467,8 @@ const ESTILOS_DEFAULT = {
   CM:    { bg: "#f2f2f2", color: "#111827", fontFamily: "Segoe UI", fontWeight: 600, fontSize: 11 },
   VERDE: { bg: "#dcfce7", color: "#14532d", fontFamily: "Segoe UI", fontWeight: 400, fontSize: 11 },
   GRIS:  { bg: "#cfcfcf", color: "#111111", fontFamily: "Segoe UI", fontWeight: 700, fontSize: 10 },
+  PD:    { bg: "#ffffff", color: "#1e293b", fontFamily: "Segoe UI", fontWeight: 400, fontSize: 11 },
+  CONF:  { bg: "#fef9c3", color: "#854d0e", fontFamily: "Segoe UI", fontWeight: 600, fontSize: 11 },
 };
 
 // Cargar estilos guardados en localStorage o usar los por defecto
@@ -3670,6 +3678,22 @@ function calcNetoPos(row)  { return calcNetoUnit(row) * (row.cantidad || 0); }
 function calcCostePos(row) { return (row.preciocosteunitario || 0) * (row.cantidad || 0); }
 function calcMargen(row)   { const n = calcNetoPos(row), c = calcCostePos(row); return n ? ((n - c) / n) * 100 : 0; }
 function fmt(n) { return (n || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" }); }
+// Devuelve true si la fecha (ISO o Date) tiene más de un año de antigüedad
+function tieneMasDeUnAno(fecha) {
+  if (!fecha) return false;
+  const d = new Date(fecha);
+  if (isNaN(d.getTime())) return false;
+  const hace1Ano = new Date();
+  hace1Ano.setFullYear(hace1Ano.getFullYear() - 1);
+  return d < hace1Ano;
+}
+// Formatea una fecha ISO a dd/mm/aaaa (o "" si no válida)
+function fmtFecha(fecha) {
+  if (!fecha) return "";
+  const d = new Date(fecha);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
 // Formato monetario con €. Si el valor es 0 devuelve "" (campo vacío)
 function fmtEur(n) {
   const num = Number(n) || 0;
@@ -3906,15 +3930,28 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
       }
       aoa.push([null, null, null, null, row.nombre || "", null, fmtNum(suma), null]);
     } else if (esProducto) {
-      aoa.push([
-        null, ap, row.cantidad || 0, row.referencia || "",
-        row.nombre || "", fmtNum(calcNetoUnit(row)), fmtNum(calcNetoPos(row)),
-        row.descripcion || "",
-      ]);
+      // TP = "Total Posición": en la impresión, cantidad 1 y el neto unitario pasa a ser
+      // el total de la posición (cantidad x neto unitario original). No afecta a pantalla ni BD.
+      const esTP = String(row.representacion || "").trim().toUpperCase() === "TP";
+      if (esTP) {
+        const totalPos = calcNetoPos(row);
+        aoa.push([
+          null, ap, 1, row.referencia || "",
+          row.nombre || "", fmtNum(totalPos), fmtNum(totalPos),
+          row.descripcion || "",
+        ]);
+      } else {
+        aoa.push([
+          null, ap, row.cantidad || 0, row.referencia || "",
+          row.nombre || "", fmtNum(calcNetoUnit(row)), fmtNum(calcNetoPos(row)),
+          row.descripcion || "",
+        ]);
+      }
     } else {
       aoa.push([null, ap, null, null, row.nombre || "", null, null, row.descripcion || ""]);
     }
-    rowMeta.push({ excelRow: aoa.length - 1, naturaleza: nat, indent });
+    const esConf = String(row.representacion || "").trim().toLowerCase() === "conf";
+    rowMeta.push({ excelRow: aoa.length - 1, naturaleza: nat, indent, esConf });
   });
 
   // ── Crear worksheet ──
@@ -3924,6 +3961,7 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
   ws["!cols"] = [
     { wch: 4  }, { wch: 10 }, { wch: 9  }, { wch: 27 },
     { wch: 60 }, { wch: 13 }, { wch: 16 }, { wch: 60 },
+    { wch: 22 },  // Columna I: "A confirmar por el cliente"
   ];
 
   // Alturas
@@ -3997,7 +4035,8 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
   // Para productos PD/PE/E y otros: aplicar a toda la fila (como ahora)
   rowMeta.forEach(meta => {
     const r = meta.excelRow;
-    const st = styleByNat(meta.naturaleza);
+    // Si la representación es "conf", la fila usa el estilo CONF (Confirmar por el cliente)
+    const st = meta.esConf ? styleByNat("CONF") : styleByNat(meta.naturaleza);
     const esProducto = ["PD","PE","E"].includes(meta.naturaleza);
     const esTitulo   = ["T1","T2","T3","T4"].includes(meta.naturaleza);
     const esSubtotal = ["S1","S2","S3","S4","TT"].includes(meta.naturaleza);
@@ -4052,6 +4091,22 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
       if (esSubtotal && c === 6 && ws[addr]) {
         ws[addr].s.font.bold = true;
       }
+    }
+
+    // Columna I (índice 8): texto "A confirmar por el cliente" en las filas con representación conf,
+    // con el estilo de la fila (CONF) y justificado en varias líneas dentro de la celda.
+    if (meta.esConf) {
+      const addrI = XLSX.utils.encode_cell({ r, c: 8 });
+      ws[addrI] = { t: "s", v: "A confirmar por el cliente" };
+      ws[addrI].s = {
+        font: { name: st.font || "Calibri", sz: st.size, bold: st.bold, color: { rgb: st.color } },
+        alignment: { horizontal: "justify", vertical: "center", wrapText: true },
+        border,
+      };
+      if (st.fill) ws[addrI].s.fill = { patternType: "solid", fgColor: { rgb: st.fill } };
+      // Asegurar que el rango de la hoja incluye la columna I
+      const ref = XLSX.utils.decode_range(ws["!ref"]);
+      if (ref.e.c < 8) { ref.e.c = 8; ws["!ref"] = XLSX.utils.encode_range(ref); }
     }
   });
 
@@ -8717,12 +8772,15 @@ export default function App() {
           const nuevoApartado = aps[row.id] != null ? aps[row.id] : (row.posicion || "");
           const cambiaNombre = nuevoNombre != null && nuevoNombre !== row.nombre;
           const cambiaApartado = nuevoApartado !== (row.posicion || "");
-          if (cambiaNombre || cambiaApartado) {
+          // Al aplicar estructura se limpia la marca de PVP vencido (rojo)
+          const limpiaVencido = !!row.pvpVencido;
+          if (cambiaNombre || cambiaApartado || limpiaVencido) {
             cambios = true;
             return {
               ...row,
               nombre: cambiaNombre ? nuevoNombre : row.nombre,
               posicion: nuevoApartado,
+              pvpVencido: false,
             };
           }
           return row;
@@ -9705,6 +9763,9 @@ export default function App() {
               descripciongrupodescuento: prod.descripciongrupodescuento || "",
               preciocosteunitario: Number(prod.preciocoste) || row.preciocosteunitario || 0,
               idposicion: prod.id || "",
+              fechapvp: prod.fechapvp || null,
+              fechapreciocoste: prod.fechapreciocoste || null,
+              pvpVencido: tieneMasDeUnAno(prod.fechapvp),
             });
             ok++;
           } catch (e) {
@@ -9855,7 +9916,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.84.3 (5 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.88.0 (6 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -10263,7 +10324,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.84.3 (5 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.88.0 (6 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
@@ -10584,6 +10645,8 @@ export default function App() {
                           if (col.key === "grupodescuento") return descGrupos[k] ? `${v} — ${descGrupos[k]}` : undefined;
                           if (col.key === "familia") return descFamilias[k] ? `${v} — ${descFamilias[k]}` : undefined;
                           if (col.key === "subfamilia") return descSubfamilias[k] ? `${v} — ${descSubfamilias[k]}` : undefined;
+                          if (col.key === "pvp" && row.fechapvp) return `PVP actualizado: ${fmtFecha(row.fechapvp)}` + (row.pvpVencido ? " (hace más de 1 año)" : "");
+                          if (col.key === "preciocosteunitario" && row.fechapreciocoste) return `Precio coste actualizado: ${fmtFecha(row.fechapreciocoste)}`;
                           return undefined;
                         })()}
                         onMouseDown={e => {
@@ -10758,9 +10821,9 @@ export default function App() {
                                 textAlign: (estructuraActiva && col.key === "nombre" && (estilo.isTitle || estilo.isComment)) ? "center"
                                   : (estructuraActiva && col.key === "nombre" && estilo.isSubtotal) ? "left"
                                   : col.align || (isRight ? "right" : "left"),
-                                color: importeNegativo ? "#dc2626" : celdaConEstilo && (estilo.isTitle || estilo.isSubtotal || estilo.isComment) ? estilo.color : isCalc ? "#0369a1" : "#1e293b",
+                                color: (col.key === "pvp" && row.pvpVencido) ? "#dc2626" : importeNegativo ? "#dc2626" : celdaConEstilo && (estilo.isTitle || estilo.isSubtotal || estilo.isComment) ? estilo.color : isCalc ? "#0369a1" : "#1e293b",
                                 fontFamily: celdaConEstilo && estilo.fontFamily ? estilo.fontFamily : "inherit",
-                                fontWeight: celdaConEstilo && (estilo.isTitle || estilo.isSubtotal) ? estilo.fontWeight : isCalc ? 500 : 400
+                                fontWeight: (col.key === "pvp" && row.pvpVencido) ? 700 : celdaConEstilo && (estilo.isTitle || estilo.isSubtotal) ? estilo.fontWeight : isCalc ? 500 : 400
                               }}>
                                 {isHidden ? "" : displayVal}
                               </div>
@@ -11200,6 +11263,9 @@ export default function App() {
               precionetounitario2: 0,
               grupodescuento: prod.grupodescuento || "",
               descripciongrupodescuento: prod.descripciongrupodescuento || "",
+              fechapvp: prod.fechapvp || null,
+              fechapreciocoste: prod.fechapreciocoste || null,
+              pvpVencido: tieneMasDeUnAno(prod.fechapvp),
             };
             // Considera vacía una fila si no tiene referencia, ni producto, ni descripción, ni naturaleza
             const esFilaVacia = (row) =>
