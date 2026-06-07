@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.91.1 (7 Junio 2026)
+// Versión: v1.92.0 (7 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.92.0 (7 Junio 2026) - Ayuda actualizada: menús al día (conf/TP, Guardar Producto con actualización, contactos con teléfonos, login, formato numérico, etc.)
 //   v1.91.1 (7 Junio 2026) - Mantenimiento BD tabla Contactos: importa también Teléfono 1 y Teléfono 2 desde Excel
 //   v1.91.0 (7 Junio 2026) - Ficha contactos: campos Teléfono 1 y Teléfono 2 (formulario y tabla)
 //   v1.90.1 (7 Junio 2026) - Ficha clientes: CP también con 5 cifras al editar la celda
@@ -10198,7 +10199,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.91.1 (7 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.92.0 (7 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -10224,7 +10225,7 @@ export default function App() {
             <section id="ayuda-intro">
               <h2 style={{ fontSize: 18, fontWeight: 700, color: "#1e3a5f", marginBottom: 10, borderBottom: "2px solid #2563eb", paddingBottom: 8 }}>¿Qué es esta aplicación?</h2>
               <p style={{ color: "#475569", lineHeight: 1.8, margin: 0 }}>
-                Aplicación para crear y gestionar <strong>presupuestos comerciales</strong>. Cada presupuesto tiene una cabecera con datos generales (ID, número, revisión, título, cliente) y una grid de líneas con productos, elementos, apartados y subtotales. Los importes neto, coste y margen se calculan automáticamente. La numeración de apartados se genera sola al activar la estructura, los subtotales (S1-S4) calculan la suma y descuento medio de su apartado, y los productos se autocompletan al teclear referencias gracias a la conexión con la base de datos. La aplicación permite importar/exportar Excel, leer presupuestos y elementos guardados, gestionar clientes y aplicar descuentos por subfamilia o fijar precios totales con reparto proporcional al neto.
+                Aplicación para crear y gestionar <strong>presupuestos comerciales</strong>. Cada presupuesto tiene una cabecera con datos generales (ID, número, revisión, título, cliente) y una grid de líneas con productos, elementos, apartados y subtotales. Los importes neto, coste y margen se calculan automáticamente. La numeración de apartados se genera sola al activar la estructura, los subtotales (S1-S4) calculan la suma y descuento medio de su apartado, y los productos se autocompletan al teclear referencias gracias a la conexión con la base de datos. La aplicación permite importar/exportar Excel, leer presupuestos y elementos guardados, gestionar clientes y contactos, y aplicar descuentos por subfamilia o fijar precios totales con reparto proporcional al neto. <strong>El acceso requiere login</strong> (tras 5 intentos fallidos se bloquea 10 minutos). Los valores numéricos usan formato español: coma decimal y punto de miles, y los importes en euros con el símbolo €.
               </p>
             </section>
 
@@ -10417,6 +10418,9 @@ export default function App() {
                   <span style={{ color: "#475569", lineHeight: 1.6, fontSize: 12 }}>{r.desc}</span>
                 </div>
               ))}
+              <p style={{ color: "#475569", lineHeight: 1.7, marginTop: 14 }}>
+                Justo encima hay una <strong>línea de información</strong> tipo Excel que muestra: <strong>Filas</strong> (total de líneas), <strong>Marcadas</strong> (filas con checkbox), <strong>Celdas sel.</strong> (nº de celdas del rectángulo azul) y <strong>Suma</strong> (sumatorio de los valores numéricos de las celdas seleccionadas).
+              </p>
             </section>
 
             <section id="ayuda-autoref">
@@ -10436,67 +10440,60 @@ export default function App() {
 
             {[
               { id: "m-presupuesto", titulo: "Menú Presupuesto", color: "#171717", items: [
-                { op: "Gestionar",              desc: "Abre el gestor para crear, abrir, copiar o eliminar presupuestos." },
-                { op: "Leer Presupuestos",      desc: "Abre un diálogo con la lista de presupuestos guardados en la BD. Permite buscar por título, cliente o número, y cargar uno (machacando el presupuesto actual)." },
-                { op: "Importar",               desc: "Importa filas desde un Excel (fichero o copiar/pegar). Detecta automáticamente las columnas por su nombre (acepta abreviaturas como Ref, Can, PVP, Dto). Si encuentra columnas ambiguas avisa con error. El Neto Unitario tiene prioridad sobre el PVP." },
-                { op: "Exportar",               desc: "Exporta el presupuesto a Excel con todos los datos crudos (21 columnas, una cabecera por fila, fila TOTAL al final). Solo exporta filas de producto (PD/PE/E)." },
-                { op: "Imprimir",               desc: "Genera un Excel formato Siemens listo para enviar al cliente. Solo muestra las columnas relevantes (Apartado, Cantidad, Referencia, Producto, Neto Unit., Neto Pos., Descripción) y aplica sangrías por nivel. Para que tenga colores instala xlsx-js-style y cambia el import." },
+                { op: "Guardar Presupuesto",    desc: "Guarda el presupuesto actual (cabecera y líneas) en la base de datos. Identifica el presupuesto por numerocompleto + revisión; si ya existe pregunta si sobrescribir." },
+                { op: "Comprobar Presupuesto",  desc: "Verifica las referencias, precios y datos de las líneas contra la BD y marca las diferencias encontradas." },
+                { op: "Leer Presupuestos",      desc: "Abre la lista de presupuestos guardados (buscar por título, cliente o número) y carga uno (sustituye el actual). Añade 10 filas en blanco al final del presupuesto cargado." },
+                { op: "Importar",               desc: "Importa filas desde un Excel (fichero o copiar/pegar). Detecta las columnas por su nombre (acepta abreviaturas como Ref, Can, PVP, Dto). Si hay columnas ambiguas avisa con error." },
+                { op: "Exportar",               desc: "Exporta el presupuesto a Excel con todos los datos crudos. El nombre del fichero usa el numerocompleto. Las opciones de la columna Representación NO se aplican aquí." },
+                { op: "Imprimir",               desc: "Genera el Excel formato Siemens para el cliente. Etiquetas de cabecera en columna D; columnas B/C/E centradas; Neto Unitario/Posición con formato moneda €. Las representaciones \"conf\" (estilo CONF + texto \"A confirmar por el cliente\" en columna I) y \"TP\" (Total Posición: cantidad 1 y unitario = total) se aplican SOLO aquí. Nombre del fichero con numerocompleto + revisión." },
+                { op: "Formato Simple Quote",   desc: "Prepara el presupuesto con el formato de tabla SimpleQuote. El nombre del fichero usa el numerocompleto. Las representaciones especiales NO se aplican aquí." },
+                { op: "Crear SimpleQuote",      desc: "Envía la oferta a SimpleQuote (Siemens) a través de la API local (127.0.0.1:8000)." },
+                { op: "Hacer Damex E",          desc: "Crea el pedido Damex E en Siemens con los datos del cliente final, vía la API local." },
                 { op: "Resumen",                desc: "Muestra el desglose por Familia/SubFamilia con tabla y gráfico donut interactivo." },
-                { op: "Aplicar Estructura",     desc: "Activa/desactiva el modo estructura: colorea filas según naturaleza (T1/T2/T3/T4 azules, S1-S4 oscuros, CM amarillo, VERDE/GRIS), oculta celdas irrelevantes en títulos/subtotales/comentarios, calcula la numeración jerárquica de apartados automáticamente (T1→1, productos→1.1/1.2, T2→1.3, sus productos→1.3.1...) y en S1-S4 calcula la suma del apartado y el descuento medio." },
-                { op: "Borrar Presupuesto actual", desc: "Borra todas las líneas dejando la cabecera vacía." },
+                { op: "Aplicar Estructura",     desc: "Activa/desactiva el modo estructura: colorea las filas según su naturaleza (estilos configurables), calcula la numeración jerárquica de apartados (T1→1, productos→1.1/1.2, T2→1.3...), persiste esa numeración en la columna Apartado y la deja vacía en S1-S4/TT/CM. En S1-S4 calcula la suma del apartado y el descuento medio. Limpia la marca de PVP caducado (rojo). Al desactivar, la numeración y etiquetas se mantienen." },
+                { op: "Borrar Presupuesto actual", desc: "Vacía todas las líneas dejando la cabecera. No borra el presupuesto guardado en la BD." },
                 { op: "Comparar Presupuestos",  desc: "Compara dos presupuestos línea a línea." },
               ]},
               { id: "m-celdas", titulo: "Menú Celdas", color: "#171717", items: [
-                { op: "Comprobar Celda",              desc: "Muestra nº de caracteres y colores (fondo/tinta) de la celda seleccionada." },
-                { op: "Borrar filas vacías",          desc: "Abre un diálogo donde seleccionas una columna. Se borran las filas marcadas con checkbox que tengan esa columna vacía. Pide confirmación indicando cuántas se borrarán." },
-                { op: "Juntar Duplicadas",            desc: "Agrupa líneas con la misma referencia sumando cantidades." },
-                { op: "Borrar filas con 0",           desc: "Elimina líneas con cantidad o importe cero." },
-                { op: "Seleccionar Celdas",           desc: "Abre un diálogo para marcar el checkbox de un rango de filas (desde fila X hasta fila Y)." },
-                { op: "Convertir fila en comentario", desc: "Cambia la naturaleza de la fila a CM." },
+                { op: "Comprobar Celda",              desc: "Muestra el nº de caracteres, el color de fondo y el color de tinta de la celda seleccionada, con una vista previa." },
+                { op: "Borrar filas vacías",          desc: "Abre un diálogo donde eliges una columna; borra las filas marcadas con checkbox que tengan esa columna vacía, pidiendo confirmación." },
+                { op: "Borrar filas con 0",           desc: "Usa la columna seleccionada con el rectángulo azul (debe ser una sola columna) y borra las filas que tengan 0 en esa columna dentro de la selección." },
+                { op: "Seleccionar Celdas",           desc: "Marca el checkbox de un rango de filas (desde la fila X hasta la fila Y)." },
+                { op: "Convertir selección en comentario", desc: "Cambia la naturaleza de las filas seleccionadas a CM (comentario)." },
+                { op: "Juntar celdas en una",         desc: "Une el contenido de varias celdas seleccionadas en una sola." },
               ]},
               { id: "m-elementos", titulo: "Menú Elementos", color: "#171717", items: [
-                { op: "Guardar Elemento",       desc: "Toma las filas seleccionadas con checkbox y las guarda en BD como elemento reutilizable. Pide nombre y descripción. Avisa si alguna referencia no existe en BD." },
-                { op: "Leer Elemento",          desc: "Abre un diálogo con la lista de elementos guardados. Al insertarlo, añade una fila de comentario (CM) con el nombre del elemento y debajo todas las filas de sus productos. Se inserta al final o delante de la primera fila seleccionada." },
-                { op: "Buscar Elemento",        desc: "Buscador por nombre o grupo." },
-                { op: "Borrar Elemento",        desc: "Elimina un elemento de la BD." },
-                { op: "Crear Elemento en Excel", desc: "Crea la estructura de un nuevo elemento en la grid." },
-                { op: "Quitar Elemento de Excel", desc: "Desvincula las líneas de su elemento." },
-                { op: "Poner Título a Elemento", desc: "Asigna o cambia el título de un elemento." },
+                { op: "Guardar Elemento",       desc: "Toma las filas seleccionadas y las guarda en la BD como elemento reutilizable (pide nombre y descripción). Avisa si alguna referencia no existe en BD." },
+                { op: "Leer Elemento",          desc: "Abre la lista de elementos guardados. Al insertarlo añade una fila de comentario (CM) con el nombre del elemento y debajo todas sus líneas de producto." },
               ]},
               { id: "m-productos", titulo: "Menú Productos", color: "#171717", items: [
-                { op: "Añadir Producto a BD",        desc: "Da de alta un producto con referencia, PVP y familia." },
-                { op: "Leer Producto",               desc: "Inserta el producto seleccionado en el buscador en la fila actual." },
-                { op: "Buscar datos por Referencia", desc: "Rellena la fila con los datos del producto cuya referencia coincide." },
-                { op: "Buscar Producto",             desc: "Buscador con filtros por referencia, descripción, familia y subfamilia." },
-                { op: "Precio Neto",                 desc: "Consulta el precio neto del producto según la tarifa activa." },
-                { op: "Buscar Netos",                desc: "Muestra precios netos de todos los productos." },
-                { op: "Quitar caracteres Referencia", desc: "Elimina espacios y caracteres no válidos de la referencia." },
-                { op: "Quitar Saltos de línea",      desc: "Limpia saltos de línea de la columna descripción." },
-                { op: "Crear Fichero para PMD",      desc: "Genera fichero de exportación compatible con PMD Siemens." },
-                { op: "Poner Costes desde fichero",  desc: "Importa precios de coste desde un fichero externo." },
-                { op: "Poner Costes desde BD",       desc: "Rellena Coste Unitario con el precio guardado en BD." },
-                { op: "Poner Costes de PMD",         desc: "Importa costes desde fichero PMD Siemens." },
-                { op: "Buscar Referencia SIEMENS",   desc: "Busca la referencia en el catálogo online de Siemens." },
-                { op: "Buscar equivalencia Competencia", desc: "Busca el equivalente de competencia para la referencia." },
-                { op: "Calcular PVP a partir de GA", desc: "Calcula el PVP desde el precio GA aplicando el factor." },
-                { op: "Asistente Referencias",       desc: "Asistente guiado para construir referencias Siemens." },
-                { op: "Guardar Imagen BD",           desc: "Asocia una imagen al producto en BD." },
-                { op: "Buscar Subfamilia del Descuento", desc: "Identifica la subfamilia de descuento para la referencia." },
+                { op: "Guardar Producto",            desc: "Crea en el catálogo los productos de las filas seleccionadas (referencia, PVP>0, descripción y grupo descuento obligatorios). Si un producto YA EXISTE, abre un diálogo para elegir qué columnas actualizar (PVP, Descripción, Nombre, Precio coste, Grupo descuento) con opción de confirmar por cada fila (SÍ/NO)." },
+                { op: "Leer Producto",               desc: "Busca un producto del catálogo y vuelca sus datos en la fila. La lista muestra columnas redimensionables (incluida Grupo Dto. con su descripción en tooltip). El PVP se marca en rojo si su fecha tiene más de 1 año." },
+                { op: "Buscar datos por Referencia", desc: "Rellena nombre, PVP, descripción y datos de cada línea por su referencia. Marca el PVP en rojo si la fecha de actualización supera 1 año (hasta que se aplique estructura)." },
+                { op: "Juntar productos duplicados", desc: "Agrupa en una sola línea los productos con la misma referencia, sumando las cantidades." },
+                { op: "Quitar caracteres Referencia", desc: "Elimina espacios y caracteres no válidos de las referencias." },
+                { op: "Quitar Saltos de línea",      desc: "Limpia los saltos de línea del texto de las celdas." },
+                { op: "Leer Precios de PMD",         desc: "Consulta precios actualizados en PMD a través de la API local." },
+                { op: "Buscar Referencia SIEMENS",   desc: "Detecta referencias Siemens (MLFB) dentro de un texto pegado (ignorando espacios y guiones) y las extrae a celdas." },
+                { op: "Buscar equivalencia Competencia", desc: "Busca el producto de competencia equivalente a la referencia." },
+                { op: "Calcular PVP a partir de GA", desc: "Calcula el PVP a partir del precio de coste GA y el margen." },
+                { op: "Asistente Referencias",       desc: "Asistente para completar y corregir referencias." },
               ]},
               { id: "m-clientes", titulo: "Menú Clientes", color: "#171717", items: [
-                { op: "Gestionar Clientes",     desc: "Abre un diálogo con la lista de clientes editable. Permite modificar cualquier campo (excepto el ID), copiar un cliente para crear uno nuevo y guardar todos los cambios en BD en una sola transacción con confirmación. Marca en amarillo los clientes modificados y en verde los nuevos." },
+                { op: "Gestionar Clientes",     desc: "Tabla de clientes editable: crear, editar (cualquier campo salvo el ID), copiar y borrar. El borrado se bloquea si el cliente está en algún presupuesto o tiene contactos. El código postal se muestra siempre con 5 cifras (ceros a la izquierda)." },
+                { op: "Gestionar Contactos",    desc: "Tabla de contactos: crear, editar y borrar. Cada contacto tiene nombre, cargo, email, Teléfono 1, Teléfono 2 y cliente asociado." },
               ]},
               { id: "m-descuentos", titulo: "Menú Descuentos", color: "#171717", items: [
-                { op: "Aplicar descuentos",       desc: "Lista las combinaciones únicas de Grupo Descuento + descuento actual del presupuesto (líneas PD/PE/E). Muestra grupo, familia, subfamilia, número de líneas, descuento actual e importe neto acumulado. Permite elegir una combinación y aplicar un nuevo descuento a todas sus líneas." },
-                { op: "Calcular Descuento",       desc: "Recalcula los descuentos según la tarifa activa." },
-                { op: "Fijar el precio total",    desc: "Pide el importe neto total objetivo y reparte el descuento entre todas las líneas del presupuesto proporcionalmente a su neto actual, ajustando el descuento de cada una para conseguir ese total." },
-                { op: "Fijar precio de celdas",   desc: "Pide el importe neto objetivo y lo reparte solo entre las filas seleccionadas (por checkbox o por rango de celdas) proporcionalmente a su neto actual." },
+                { op: "Aplicar descuentos",       desc: "Lista las combinaciones únicas de Grupo Descuento + descuento actual de las líneas (PD/PE/E), mostrando grupo, familia, subfamilia, nº de líneas, descuento e importe neto. Permite aplicar un nuevo descuento a toda una combinación." },
+                { op: "Calcular Descuento",       desc: "Calcula, para cada celda numérica seleccionada, el descuento de su fila para que el neto unitario coincida con el valor objetivo. Admite descuentos negativos (recargo)." },
+                { op: "Fijar el precio total",    desc: "Pide el importe neto total objetivo y reparte el descuento entre todas las líneas proporcionalmente a su neto actual." },
+                { op: "Fijar precio de celdas",   desc: "Pide el importe neto objetivo y lo reparte solo entre las filas seleccionadas (por checkbox o rango) proporcionalmente a su neto actual." },
               ]},
               { id: "m-otros", titulo: "Menú Otros", color: "#171717", items: [
                 { op: "Ayuda",                    desc: "Muestra este manual." },
-                { op: "Opciones",                 desc: "Pantalla con menú lateral y 4 secciones: (1) \"Configurar Estilos\" personaliza colores, fuente, tamaño y peso de cada naturaleza con botones Exportar/Importar JSON para hacer backup. (2) \"Actualizar Tarifas\" carga Excel arrastrando para crear/actualizar productos en BD, con selector Sobreescribir SÍ/NO y log detallado. (3) \"Mantenimiento BD\" gestiona la tabla Log, recalcula masusado de productos, exporta Familia/SubFamilia a Excel, carga grupos descuento desde Excel y asigna grupodescuento a productos por raíz. (4) \"Gestión de Usuarios\" lista, crea, edita y borra usuarios con sus permisos y contraseña." },
-                { op: "Gestionar Descuentos",     desc: "Gestor de tarifas por familia y subfamilia." },
-                { op: "Gestionar BD Competencia", desc: "Gestor de productos de la competencia y equivalencias." },
+                { op: "Opciones",                 desc: "Pantalla con menú lateral: (1) Configurar Estilos: personaliza color, fuente, tamaño y peso de cada naturaleza, incluidos PD (producto normal) y CONF (Confirmar por el cliente), con Exportar/Importar JSON. (2) Actualizar Tarifas: carga un Excel para crear/actualizar productos, con selector Sobrescribir SÍ/NO y log. (3) Mantenimiento BD: tablas de Clientes y Contactos (importar Excel, los contactos incluyen Teléfono 1 y 2), Log, recálculo de masusado, exportaciones y comprobación de integridad de datos. (4) Gestión de Usuarios: crear, editar y borrar usuarios con permisos y contraseña. (5) Configuraciones Varias." },
+                { op: "Gestionar Descuentos",     desc: "Gestor de los grupos de descuento del catálogo." },
+                { op: "Gestionar BD Competencia", desc: "Gestor de los productos de la competencia y sus equivalencias." },
               ]},
                         ].map(menu => (
               <section key={menu.id} id={"ayuda-" + menu.id}>
@@ -10606,7 +10603,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.91.1 (7 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.92.0 (7 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
