@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.90.1 (7 Junio 2026)
+// Versión: v1.91.1 (7 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.91.1 (7 Junio 2026) - Mantenimiento BD tabla Contactos: importa también Teléfono 1 y Teléfono 2 desde Excel
+//   v1.91.0 (7 Junio 2026) - Ficha contactos: campos Teléfono 1 y Teléfono 2 (formulario y tabla)
 //   v1.90.1 (7 Junio 2026) - Ficha clientes: CP también con 5 cifras al editar la celda
 //   v1.90.0 (7 Junio 2026) - Ficha clientes: CP siempre con 5 cifras (ceros a la izquierda, 1250 → 01250)
 //   v1.89.3 (7 Junio 2026) - Limpieza: quitados los logs de diagnóstico temporal de Guardar Producto
@@ -2465,7 +2467,7 @@ function MantenimientoSection({ setStatus }) {
         setStatus={setStatus}
         config={{
           titulo: "Mantenimiento tabla Contactos",
-          descripcion: "Importa o actualiza contactos desde un Excel. Columnas mínimas obligatorias: Nombre y Cliente (nombre común del cliente). Otras columnas reconocidas: Email, Cargo.",
+          descripcion: "Importa o actualiza contactos desde un Excel. Columnas mínimas obligatorias: Nombre y Cliente (nombre común del cliente). Otras columnas reconocidas: Email, Cargo, Teléfono 1, Teléfono 2.",
           icono: User,
           color: "#0891b2",
           columnas: [
@@ -2473,6 +2475,8 @@ function MantenimientoSection({ setStatus }) {
             { claves: ["cliente", "nombre cliente", "nombre comun cliente"], destino: "_cliente_nombre", label: "Cliente", obligatoria: true },
             { claves: ["email", "correo", "e-mail"], destino: "email", label: "Email", obligatoria: false },
             { claves: ["cargo", "puesto"], destino: "cargo", label: "Cargo", obligatoria: false },
+            { claves: ["telefono1", "telefono", "teléfono", "teléfono 1", "telefono 1", "tlf", "tel", "tel1"], destino: "telefono1", label: "Teléfono 1", obligatoria: false },
+            { claves: ["telefono2", "teléfono 2", "telefono 2", "tlf2", "tel2", "movil", "móvil"], destino: "telefono2", label: "Teléfono 2", obligatoria: false },
           ],
           cargarContexto: async () => {
             const ctx = { contactos: [], clientes: [] };
@@ -2499,6 +2503,8 @@ function MantenimientoSection({ setStatus }) {
               nombre: datos.nombre || null,
               email: datos.email || null,
               cargo: datos.cargo || null,
+              telefono1: datos.telefono1 || null,
+              telefono2: datos.telefono2 || null,
               idcliente: cli.id,
             };
             // Buscar contacto existente por nombre + idcliente
@@ -5508,6 +5514,8 @@ function ContactosDialog({ onClose, setStatus }) {
       nombre: "",
       email: "",
       cargo: "",
+      telefono1: "",
+      telefono2: "",
       idcliente: filtroClienteId || 1, // si hay filtro de cliente activo lo usa, si no 1 (no definido)
     });
   };
@@ -5614,6 +5622,8 @@ function ContactosDialog({ onClose, setStatus }) {
                       <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "1px solid #e5e5e5", fontWeight: 600 }}>Nombre</th>
                       <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "1px solid #e5e5e5", fontWeight: 600 }}>Cargo</th>
                       <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "1px solid #e5e5e5", fontWeight: 600 }}>Email</th>
+                      <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "1px solid #e5e5e5", fontWeight: 600 }}>Tel. 1</th>
+                      <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "1px solid #e5e5e5", fontWeight: 600 }}>Tel. 2</th>
                       <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "1px solid #e5e5e5", fontWeight: 600 }}>Cliente</th>
                       <th style={{ padding: "6px 8px", textAlign: "right", borderBottom: "1px solid #e5e5e5", fontWeight: 600, width: 90 }}></th>
                     </tr>
@@ -5625,6 +5635,8 @@ function ContactosDialog({ onClose, setStatus }) {
                         <td style={{ padding: "6px 8px", fontWeight: 500, color: "#171717" }}>{c.nombre}</td>
                         <td style={{ padding: "6px 8px", color: "#525252" }}>{c.cargo || "—"}</td>
                         <td style={{ padding: "6px 8px", color: "#525252", fontSize: 11 }}>{c.email || "—"}</td>
+                        <td style={{ padding: "6px 8px", color: "#525252", fontSize: 11 }}>{c.telefono1 || "—"}</td>
+                        <td style={{ padding: "6px 8px", color: "#525252", fontSize: 11 }}>{c.telefono2 || "—"}</td>
                         <td style={{ padding: "6px 8px", color: "#737373", fontSize: 11 }}>{c.cliente_nombre || c.cliente_razonsocial || "—"}</td>
                         <td style={{ padding: "4px 6px", textAlign: "right", whiteSpace: "nowrap" }}>
                           <button onClick={() => editar(c)} title="Editar"
@@ -5664,6 +5676,16 @@ function ContactosDialog({ onClose, setStatus }) {
                 <div>
                   <label style={{ fontSize: 11, color: "#525252", fontWeight: 500, display: "block", marginBottom: 3 }}>Email</label>
                   <input type="email" value={draft.email || ""} onChange={e => setDraft({ ...draft, email: e.target.value })}
+                    style={{ width: "100%", padding: "5px 8px", border: "1px solid #d4d4d4", borderRadius: 4, fontSize: 12, boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#525252", fontWeight: 500, display: "block", marginBottom: 3 }}>Teléfono 1</label>
+                  <input value={draft.telefono1 || ""} onChange={e => setDraft({ ...draft, telefono1: e.target.value })}
+                    style={{ width: "100%", padding: "5px 8px", border: "1px solid #d4d4d4", borderRadius: 4, fontSize: 12, boxSizing: "border-box" }} />
+                </div>
+                <div>
+                  <label style={{ fontSize: 11, color: "#525252", fontWeight: 500, display: "block", marginBottom: 3 }}>Teléfono 2</label>
+                  <input value={draft.telefono2 || ""} onChange={e => setDraft({ ...draft, telefono2: e.target.value })}
                     style={{ width: "100%", padding: "5px 8px", border: "1px solid #d4d4d4", borderRadius: 4, fontSize: 12, boxSizing: "border-box" }} />
                 </div>
                 <div>
@@ -10176,7 +10198,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.90.1 (7 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.91.1 (7 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -10584,7 +10606,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.90.1 (7 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.91.1 (7 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
