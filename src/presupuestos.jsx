@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.88.1 (6 Junio 2026)
+// Versión: v1.89.0 (7 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.89.0 (7 Junio 2026) - Guardar Producto: si el producto existe, diálogo para elegir columnas a actualizar (PVP/desc/nombre/coste/grupo) + confirmación por fila SÍ/NO
 //   v1.88.1 (6 Junio 2026) - Excel Imprimir: columna I ancho 18 y texto centrado
 //   v1.88.0 (6 Junio 2026) - Excel Imprimir: representación "TP" (Total Posición) → cantidad 1 y neto unitario = total posición (solo en la impresión)
 //   v1.87.0 (6 Junio 2026) - Excel Imprimir: representación "conf" aplica estilo CONF a la fila y escribe "A confirmar por el cliente" en columna I (justificado)
@@ -8287,6 +8288,228 @@ function SiemensRefsDialog({ celdasTrabajadas, onClose, onComplete, setStatus })
   );
 }
 
+
+// ── Diálogo Actualizar Productos existentes ──
+// Permite elegir qué columnas actualizar (global) y si pedir confirmación por fila.
+function ActualizarProductosDialog({ datos, onClose, setStatus }) {
+  const { existentes } = datos;
+  // Columnas que se pueden actualizar
+  const COLS = [
+    { key: "pvp", label: "PVP" },
+    { key: "descripcion", label: "Descripción" },
+    { key: "nombre", label: "Nombre" },
+    { key: "preciocoste", label: "Precio coste" },
+    { key: "grupodescuento", label: "Grupo descuento" },
+  ];
+  // Solo ofrecer columnas que tengan valor en al menos una fila
+  const colsDisponibles = COLS.filter(c =>
+    existentes.some(e => {
+      const v = e.nuevos[c.key];
+      return v !== null && v !== undefined && String(v).trim() !== "";
+    })
+  );
+  const [seleccion, setSeleccion] = useState(() => {
+    const s = {}; colsDisponibles.forEach(c => { s[c.key] = true; }); return s;
+  });
+  const [pedirConfirmacion, setPedirConfirmacion] = useState(false);
+  const [fase, setFase] = useState("config"); // "config" | "porFila" | "procesando"
+  const [idxActual, setIdxActual] = useState(0);
+  const [resultados, setResultados] = useState({ actualizados: 0, omitidos: 0, errores: 0 });
+  const [log, setLog] = useState([]);
+
+  const colsElegidas = colsDisponibles.filter(c => seleccion[c.key]);
+
+  const valorMostrar = (key, val) => {
+    if (val === null || val === undefined || val === "") return "(vacío)";
+    if (key === "pvp" || key === "preciocoste") return fmtEur(Number(val));
+    return String(val);
+  };
+
+  // Aplica la actualización a un producto (PATCH). Devuelve "ok"|"error"
+  const actualizarUno = async (item) => {
+    const payload = {};
+    colsElegidas.forEach(c => {
+      const v = item.nuevos[c.key];
+      if (v !== null && v !== undefined && String(v).trim() !== "") payload[c.key] = v;
+    });
+    if (Object.keys(payload).length === 0) return "omitido";
+    try {
+      const r = await fetch(`${API_URL}/productos/${item.productoBD.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
+      return "ok";
+    } catch (e) {
+      return "error:" + e.message;
+    }
+  };
+
+  // Modo sin confirmación: actualizar todos de golpe
+  const procesarTodos = async () => {
+    setFase("procesando");
+    let act = 0, om = 0, err = 0;
+    const nuevoLog = [];
+    for (const item of existentes) {
+      const ref = item.fila.referencia;
+      const res = await actualizarUno(item);
+      if (res === "ok") { act++; nuevoLog.push(`✓ ${ref}: actualizado`); }
+      else if (res === "omitido") { om++; nuevoLog.push(`⊘ ${ref}: sin columnas que actualizar`); }
+      else { err++; nuevoLog.push(`✗ ${ref}: ${res.replace("error:", "")}`); }
+    }
+    setResultados({ actualizados: act, omitidos: om, errores: err });
+    setLog(nuevoLog);
+    setStatus(`Actualizar productos: ${act} actualizado(s), ${om} omitido(s), ${err} error(es)`, err > 0 ? "error" : "success");
+    setFase("fin");
+  };
+
+  // Iniciar el flujo según el toggle de confirmación
+  const iniciar = () => {
+    if (colsElegidas.length === 0) {
+      setStatus("Selecciona al menos una columna para actualizar", "error");
+      return;
+    }
+    if (pedirConfirmacion) {
+      setIdxActual(0);
+      setFase("porFila");
+    } else {
+      procesarTodos();
+    }
+  };
+
+  // Decisión por fila (modo confirmación SÍ)
+  const decidirFila = async (aplicar) => {
+    const item = existentes[idxActual];
+    const ref = item.fila.referencia;
+    if (aplicar) {
+      const res = await actualizarUno(item);
+      setResultados(r => ({
+        ...r,
+        actualizados: r.actualizados + (res === "ok" ? 1 : 0),
+        errores: r.errores + (res.startsWith && res.startsWith("error") ? 1 : 0),
+        omitidos: r.omitidos + (res === "omitido" ? 1 : 0),
+      }));
+      setLog(l => [...l, res === "ok" ? `✓ ${ref}: actualizado` : res === "omitido" ? `⊘ ${ref}: sin columnas` : `✗ ${ref}: ${String(res).replace("error:", "")}`]);
+    } else {
+      setResultados(r => ({ ...r, omitidos: r.omitidos + 1 }));
+      setLog(l => [...l, `⊘ ${ref}: omitido por el usuario`]);
+    }
+    // Avanzar
+    if (idxActual + 1 < existentes.length) {
+      setIdxActual(idxActual + 1);
+    } else {
+      setFase("fin");
+      setStatus("Actualización por fila terminada", "success");
+    }
+  };
+
+  const item = existentes[idxActual];
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100002 }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "92%", maxWidth: 600, maxHeight: "88vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
+
+        {fase === "config" && (
+          <>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: "#171717", margin: "0 0 6px" }}>Actualizar productos existentes</h3>
+            <p style={{ fontSize: 13, color: "#475569", margin: "0 0 16px", lineHeight: 1.5 }}>
+              {existentes.length} producto(s) seleccionado(s) ya existen en el catálogo. Elige qué columnas actualizar.
+            </p>
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#171717", marginBottom: 8 }}>Columnas a actualizar:</div>
+              {colsDisponibles.length === 0 ? (
+                <p style={{ fontSize: 12, color: "#dc2626" }}>Las filas no tienen valores en columnas actualizables.</p>
+              ) : colsDisponibles.map(c => (
+                <label key={c.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", fontSize: 13, cursor: "pointer" }}>
+                  <input type="checkbox" checked={!!seleccion[c.key]}
+                    onChange={e => setSeleccion(s => ({ ...s, [c.key]: e.target.checked }))} />
+                  {c.label}
+                </label>
+              ))}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
+              <span style={{ fontSize: 13, color: "#171717", fontWeight: 500 }}>Pedir confirmación por cada fila:</span>
+              <div style={{ display: "inline-flex", border: "1px solid #d4d4d4", borderRadius: 6, overflow: "hidden" }}>
+                <button onClick={() => setPedirConfirmacion(true)}
+                  style={{ padding: "4px 14px", fontSize: 12, border: "none", cursor: "pointer", background: pedirConfirmacion ? "#171717" : "#fff", color: pedirConfirmacion ? "#fff" : "#171717", fontWeight: pedirConfirmacion ? 600 : 400 }}>SÍ</button>
+                <button onClick={() => setPedirConfirmacion(false)}
+                  style={{ padding: "4px 14px", fontSize: 12, border: "none", borderLeft: "1px solid #d4d4d4", cursor: "pointer", background: !pedirConfirmacion ? "#171717" : "#fff", color: !pedirConfirmacion ? "#fff" : "#171717", fontWeight: !pedirConfirmacion ? 600 : 400 }}>NO</button>
+              </div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13 }}>Cancelar</button>
+              <button onClick={iniciar} disabled={colsElegidas.length === 0}
+                style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: colsElegidas.length === 0 ? "#cbd5e1" : "#2563eb", color: "#fff", cursor: colsElegidas.length === 0 ? "default" : "pointer", fontSize: 13, fontWeight: 600 }}>
+                {pedirConfirmacion ? "Revisar fila a fila" : "Actualizar todos"}
+              </button>
+            </div>
+          </>
+        )}
+
+        {fase === "porFila" && item && (
+          <>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: "#171717", margin: "0 0 4px" }}>
+              Confirmar actualización ({idxActual + 1} de {existentes.length})
+            </h3>
+            <p style={{ fontSize: 13, color: "#475569", margin: "0 0 14px" }}>
+              Producto <strong>{item.fila.referencia}</strong> (id {item.productoBD.id})
+            </p>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 18 }}>
+              <thead>
+                <tr style={{ background: "#f8fafc" }}>
+                  <th style={{ textAlign: "left", padding: "6px 8px", border: "1px solid #e2e8f0" }}>Columna</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px", border: "1px solid #e2e8f0" }}>Valor actual (BD)</th>
+                  <th style={{ textAlign: "left", padding: "6px 8px", border: "1px solid #e2e8f0" }}>Nuevo valor</th>
+                </tr>
+              </thead>
+              <tbody>
+                {colsElegidas.map(c => {
+                  const actualBD = c.key === "grupodescuento" ? (item.productoBD.idgrupodescuento ?? item.productoBD.grupodescuento) : item.productoBD[c.key];
+                  const nuevo = c.key === "grupodescuento" ? item.nuevos.grupoCod : item.nuevos[c.key];
+                  return (
+                    <tr key={c.key}>
+                      <td style={{ padding: "6px 8px", border: "1px solid #e2e8f0", fontWeight: 600 }}>{c.label}</td>
+                      <td style={{ padding: "6px 8px", border: "1px solid #e2e8f0", color: "#64748b" }}>{valorMostrar(c.key, actualBD)}</td>
+                      <td style={{ padding: "6px 8px", border: "1px solid #e2e8f0", color: "#16a34a", fontWeight: 600 }}>{valorMostrar(c.key, nuevo)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+              <button onClick={() => decidirFila(false)} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13 }}>No actualizar</button>
+              <button onClick={() => decidirFila(true)} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#16a34a", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Actualizar este</button>
+            </div>
+          </>
+        )}
+
+        {(fase === "procesando" || fase === "fin") && (
+          <>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: "#171717", margin: "0 0 10px" }}>
+              {fase === "procesando" ? "Actualizando..." : "Actualización terminada"}
+            </h3>
+            <div style={{ fontSize: 13, color: "#475569", marginBottom: 12 }}>
+              {resultados.actualizados} actualizado(s), {resultados.omitidos} omitido(s), {resultados.errores} error(es)
+            </div>
+            <div style={{ maxHeight: 240, overflow: "auto", background: "#0f172a", borderRadius: 6, padding: "8px 12px", fontFamily: "monospace", fontSize: 11 }}>
+              {log.map((l, i) => (
+                <div key={i} style={{ color: l.startsWith("✓") ? "#86efac" : l.startsWith("✗") ? "#fca5a5" : "#fcd34d", padding: "1px 0" }}>{l}</div>
+              ))}
+            </div>
+            {fase === "fin" && (
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
+                <button onClick={onClose} style={{ padding: "8px 20px", borderRadius: 6, border: "none", background: "#2563eb", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Cerrar</button>
+              </div>
+            )}
+          </>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   // Reset global de html/body para que no aparezca scroll de la página completa
   useEffect(() => {
@@ -8645,6 +8868,7 @@ export default function App() {
   const [showGuardarElem, setShowGuardarElem] = useState(false);
   const [showLeerElem, setShowLeerElem] = useState(false);
   const [showLeerProducto, setShowLeerProducto] = useState(false);
+  const [actualizarProductos, setActualizarProductos] = useState(null); // { existentes: [{fila, productoBD}], gruposCache } | null
   const [confirmBorrarPresup, setConfirmBorrarPresup] = useState(false);
   const [comprobarDialog, setComprobarDialog] = useState(null); // { tipo: "iguales" | "diferentes" | "no_existe", diffs: [], comparado: presupuestoBD }
   const [confirmSobreescribir, setConfirmSobreescribir] = useState(false);
@@ -9607,6 +9831,7 @@ export default function App() {
 
         let creados = 0, saltadosExistentes = 0, errores = 0, saltadosFaltan = 0, saltadosGrupo = 0;
         const detalles = []; // mensajes detalle para el log
+        const existentes = []; // productos que ya existen → se gestionarán en el diálogo de actualización
 
         for (const fila of filasObjetivo) {
           const ref = String(fila.referencia || "").trim();
@@ -9646,8 +9871,21 @@ export default function App() {
               const data = await rExist.json().catch(() => null);
               const refDevuelta = data && data.referencia ? String(data.referencia).trim().toUpperCase() : "";
               if (data && data.id && refDevuelta === ref.toUpperCase()) {
+                // Existe: lo recopilamos para el diálogo de actualización (no se omite sin más)
+                existentes.push({
+                  fila,
+                  productoBD: data,
+                  // valores nuevos candidatos a actualizar (de la fila del presupuesto)
+                  nuevos: {
+                    pvp,
+                    descripcion,
+                    nombre,
+                    preciocoste: (!isNaN(Number(fila.preciocosteunitario)) && Number(fila.preciocosteunitario) > 0) ? Number(fila.preciocosteunitario) : null,
+                    grupodescuento: idGrupo,
+                    grupoCod,
+                  },
+                });
                 saltadosExistentes++;
-                detalles.push(`⊘ ${ref}: ya existe en BD (id ${data.id}), se omite`);
                 continue;
               }
               // 2xx pero no es un producto válido → seguimos al INSERT (lo trataremos como inexistente)
@@ -9680,19 +9918,25 @@ export default function App() {
           }
         }
 
-        // Resumen final
+        // Resumen de la fase de creación
         const partes = [];
         if (creados > 0) partes.push(`${creados} creado${creados !== 1 ? "s" : ""}`);
-        if (saltadosExistentes > 0) partes.push(`${saltadosExistentes} ya existían`);
         if (saltadosFaltan > 0) partes.push(`${saltadosFaltan} sin campos obligatorios`);
         if (saltadosGrupo > 0) partes.push(`${saltadosGrupo} con grupo inválido`);
         if (errores > 0) partes.push(`${errores} con error`);
-        const resumen = partes.join(", ");
-        const tipo = errores > 0 ? "error" : (creados > 0 ? "success" : "info");
-        setStatus(`Guardar Producto: ${resumen || "nada que procesar"}`, tipo);
-        // Log detallado en consola
         console.log("[GuardarProducto] Detalles:");
         detalles.forEach(d => console.log("  " + d));
+
+        // Si hay productos existentes, abrir el diálogo de actualización
+        if (existentes.length > 0) {
+          const resumenCrear = partes.length > 0 ? partes.join(", ") + ". " : "";
+          setStatus(`${resumenCrear}${existentes.length} producto(s) ya existen: configura qué actualizar`, "info");
+          setActualizarProductos({ existentes, gruposCache });
+        } else {
+          const resumen = partes.join(", ");
+          const tipo = errores > 0 ? "error" : (creados > 0 ? "success" : "info");
+          setStatus(`Guardar Producto: ${resumen || "nada que procesar"}`, tipo);
+        }
       })();
       return;
     }
@@ -9917,7 +10161,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.88.1 (6 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.89.0 (7 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -10325,7 +10569,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.88.1 (6 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.89.0 (7 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
@@ -11237,6 +11481,13 @@ export default function App() {
           filasSeleccionadas={rows.filter(r => selectedRows.has(r.id))}
           setStatus={setStatus}
           onClose={() => setShowGuardarElem(false)}
+        />
+      )}
+      {actualizarProductos && (
+        <ActualizarProductosDialog
+          datos={actualizarProductos}
+          setStatus={setStatus}
+          onClose={() => setActualizarProductos(null)}
         />
       )}
       {showLeerProducto && (
