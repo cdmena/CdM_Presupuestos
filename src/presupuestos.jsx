@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.92.0 (7 Junio 2026)
+// Versión: v1.93.0 (7 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.93.0 (7 Junio 2026) - Todos los recuadros de log (progreso) tienen ahora botón Exportar CSV además de Limpiar log (helper exportarLogCSV)
 //   v1.92.0 (7 Junio 2026) - Ayuda actualizada: menús al día (conf/TP, Guardar Producto con actualización, contactos con teléfonos, login, formato numérico, etc.)
 //   v1.91.1 (7 Junio 2026) - Mantenimiento BD tabla Contactos: importa también Teléfono 1 y Teléfono 2 desde Excel
 //   v1.91.0 (7 Junio 2026) - Ficha contactos: campos Teléfono 1 y Teléfono 2 (formulario y tabla)
@@ -673,6 +674,11 @@ function TarifasSection({ setStatus }) {
                 title="Copiar todo el log al portapapeles"
                 style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
                 <BtnContent icon={Copy} iconColor="#475569">Copiar log</BtnContent>
+              </button>
+              <button onClick={() => exportarLogCSV(log, "log")}
+                title="Exportar el log a un fichero CSV"
+                style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
+                <BtnContent icon={Download} iconColor="#475569">Exportar CSV</BtnContent>
               </button>
               <button onClick={() => setLog([])}
                 style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
@@ -1713,6 +1719,33 @@ function ImportTablaSection({ setStatus, config }) {
       </div>
 
       {/* Log de progreso detallado (siempre visible, como en Actualizar Tarifas) */}
+      <div style={{ fontSize: 12, fontWeight: 600, color: "#171717", marginBottom: 4, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <span>Progreso ({log.length} entrada{log.length !== 1 ? "s" : ""})</span>
+        {log.length > 0 && (
+          <div style={{ display: "inline-flex", gap: 6 }}>
+            <button onClick={() => {
+                const texto = log.map(l => {
+                  const prefijo = l.tipo === "error" ? "[ERROR]" : l.tipo === "warning" ? "[AVISO]" : l.tipo === "success" ? "[OK]" : "[INFO]";
+                  return `[${l.hora || ""}] ${prefijo} ${l.texto}`;
+                }).join("\n");
+                if (navigator.clipboard) navigator.clipboard.writeText(texto).then(() => setStatus && setStatus("Log copiado al portapapeles", "success")).catch(() => {});
+              }}
+              title="Copiar todo el log al portapapeles"
+              style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
+              <BtnContent icon={Copy} iconColor="#475569">Copiar log</BtnContent>
+            </button>
+            <button onClick={() => exportarLogCSV(log, "mantenimiento")}
+              title="Exportar el log a un fichero CSV"
+              style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
+              <BtnContent icon={Download} iconColor="#475569">Exportar CSV</BtnContent>
+            </button>
+            <button onClick={() => setLog([])}
+              style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
+              <BtnContent icon={Trash2} iconColor="#475569">Limpiar log</BtnContent>
+            </button>
+          </div>
+        )}
+      </div>
       <div ref={logRef} style={{ height: 280, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 6, background: "#0f172a", color: "#e2e8f0", fontFamily: "monospace", fontSize: 11, padding: "8px 12px", lineHeight: 1.5 }}>
         {log.length === 0 ? (
           <div style={{ color: "#64748b", textAlign: "center", padding: "20px 0", fontStyle: "italic" }}>
@@ -2553,6 +2586,27 @@ function MantenimientoSection({ setStatus }) {
             {comprobandoIntegridad ? "Comprobando..." : "Comprobar integridad"}
           </BtnContent>
         </button>
+        {integridadLog.length > 0 && (
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#171717", margin: "8px 0 4px", display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6 }}>
+            <button onClick={() => {
+                const texto = integridadLog.map(l => `[${l.hora || ""}] ${l.texto}`).join("\n");
+                if (navigator.clipboard) navigator.clipboard.writeText(texto).then(() => setStatus && setStatus("Log copiado al portapapeles", "success")).catch(() => {});
+              }}
+              title="Copiar todo el log al portapapeles"
+              style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
+              <BtnContent icon={Copy} iconColor="#475569">Copiar log</BtnContent>
+            </button>
+            <button onClick={() => exportarLogCSV(integridadLog, "integridad")}
+              title="Exportar el log a un fichero CSV"
+              style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
+              <BtnContent icon={Download} iconColor="#475569">Exportar CSV</BtnContent>
+            </button>
+            <button onClick={() => setIntegridadLog([])}
+              style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
+              <BtnContent icon={Trash2} iconColor="#475569">Limpiar log</BtnContent>
+            </button>
+          </div>
+        )}
         <div ref={integridadLogRef} style={{ height: 280, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 6, background: "#0f172a", color: "#e2e8f0", fontFamily: "monospace", fontSize: 11, padding: "8px 12px", lineHeight: 1.5 }}>
           {integridadLog.length === 0 ? (
             <div style={{ color: "#64748b", textAlign: "center", padding: "20px 0", fontStyle: "italic" }}>
@@ -2719,7 +2773,12 @@ function MantenimientoSection({ setStatus }) {
                   style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
                   <BtnContent icon={Copy} iconColor="#475569">Copiar log</BtnContent>
                 </button>
-                <button onClick={() => setGdLog([])}
+                <button onClick={() => exportarLogCSV(gdLog, "grupos-descuento")}
+                title="Exportar el log a un fichero CSV"
+                style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
+                <BtnContent icon={Download} iconColor="#475569">Exportar CSV</BtnContent>
+              </button>
+              <button onClick={() => setGdLog([])}
                   style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
                   <BtnContent icon={Trash2} iconColor="#475569">Limpiar log</BtnContent>
                 </button>
@@ -2790,7 +2849,12 @@ function MantenimientoSection({ setStatus }) {
                   style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
                   <BtnContent icon={Copy} iconColor="#475569">Copiar log</BtnContent>
                 </button>
-                <button onClick={() => setAsignarLog([])}
+                <button onClick={() => exportarLogCSV(asignarLog, "asignar-grupos")}
+                title="Exportar el log a un fichero CSV"
+                style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
+                <BtnContent icon={Download} iconColor="#475569">Exportar CSV</BtnContent>
+              </button>
+              <button onClick={() => setAsignarLog([])}
                   style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
                   <BtnContent icon={Trash2} iconColor="#475569">Limpiar log</BtnContent>
                 </button>
@@ -3708,6 +3772,29 @@ function fmtFecha(fecha) {
   if (isNaN(d.getTime())) return "";
   return d.toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" });
 }
+// Exporta un array de entradas de log a un fichero CSV (columnas: Hora, Tipo, Mensaje).
+// Cada entrada puede ser { texto, tipo, hora } o un string suelto.
+function exportarLogCSV(log, nombreBase = "log") {
+  if (!log || log.length === 0) return;
+  const esc = (s) => '"' + String(s ?? "").replace(/"/g, '""') + '"';
+  const cab = ["Hora", "Tipo", "Mensaje"].join(";");
+  const filas = log.map(l => {
+    if (typeof l === "string") return [esc(""), esc("info"), esc(l)].join(";");
+    return [esc(l.hora || ""), esc(l.tipo || "info"), esc(l.texto ?? "")].join(";");
+  });
+  // BOM para que Excel reconozca UTF-8
+  const contenido = "\ufeff" + [cab, ...filas].join("\r\n");
+  const blob = new Blob([contenido], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const fecha = new Date().toISOString().slice(0, 10);
+  a.href = url;
+  a.download = `${nombreBase}-${fecha}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 // Formato monetario con €. Si el valor es 0 devuelve "" (campo vacío)
 function fmtEur(n) {
   const num = Number(n) || 0;
@@ -4488,6 +4575,11 @@ function ImportarDialog({ onClose, onImport }) {
                   }}
                   style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
                   <BtnContent icon={Copy} iconColor="#475569">Copiar log</BtnContent>
+                </button>
+                <button onClick={() => exportarLogCSV(log, "importacion")}
+                  title="Exportar el log a un fichero CSV"
+                  style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
+                  <BtnContent icon={Download} iconColor="#475569">Exportar CSV</BtnContent>
                 </button>
                 <button onClick={() => setLog([])}
                   style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
@@ -8527,8 +8619,21 @@ function ActualizarProductosDialog({ datos, onClose, setStatus }) {
             <h3 style={{ fontSize: 16, fontWeight: 700, color: "#171717", margin: "0 0 10px" }}>
               {fase === "procesando" ? "Actualizando..." : "Actualización terminada"}
             </h3>
-            <div style={{ fontSize: 13, color: "#475569", marginBottom: 12 }}>
-              {resultados.actualizados} actualizado(s), {resultados.omitidos} omitido(s), {resultados.errores} error(es)
+            <div style={{ fontSize: 13, color: "#475569", marginBottom: 8, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>{resultados.actualizados} actualizado(s), {resultados.omitidos} omitido(s), {resultados.errores} error(es)</span>
+              {log.length > 0 && (
+                <div style={{ display: "inline-flex", gap: 6 }}>
+                  <button onClick={() => exportarLogCSV(log, "actualizar-productos")}
+                    title="Exportar el log a un fichero CSV"
+                    style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
+                    <BtnContent icon={Download} iconColor="#475569">Exportar CSV</BtnContent>
+                  </button>
+                  <button onClick={() => setLog([])}
+                    style={{ padding: "3px 10px", fontSize: 10, border: "1px solid #d4d4d4", borderRadius: 4, background: "#fff", color: "#171717", cursor: "pointer" }}>
+                    <BtnContent icon={Trash2} iconColor="#475569">Limpiar log</BtnContent>
+                  </button>
+                </div>
+              )}
             </div>
             <div style={{ maxHeight: 240, overflow: "auto", background: "#0f172a", borderRadius: 6, padding: "8px 12px", fontFamily: "monospace", fontSize: 11 }}>
               {log.map((l, i) => (
@@ -10199,7 +10304,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.92.0 (7 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.93.0 (7 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -10603,7 +10708,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.92.0 (7 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.93.0 (7 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
