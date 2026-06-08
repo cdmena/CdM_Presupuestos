@@ -1,7 +1,7 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.94.2 (8 Junio 2026)
+// Versión: v1.96.0 (8 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,10 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.96.0 (8 Junio 2026) - Error Boundary: un fallo de render ya no deja la app en blanco (muestra aviso + Reintentar). commitEdit más defensivo (captura la celda y try/catch) para el blur del editor multilínea
+//   v1.95.0 (8 Junio 2026) - Etiqueta de estructura siempre visible: verde "Estructura activa" / gris "Estructura desactivada", clicable para alternar
+//   v1.94.4 (8 Junio 2026) - Excel Imprimir: título primera fila "Rev.N" → "Revisión N"
+//   v1.94.3 (8 Junio 2026) - Nombre fichero Imprimir: "Rev.2" → "Rev 2" (punto por espacio)
 //   v1.94.2 (8 Junio 2026) - Leer Presupuesto: importe total y netos con punto de miles también en 4 cifras (useGrouping always)
 //   v1.94.1 (8 Junio 2026) - Diálogo Leer Elemento también redimensionable
 //   v1.94.0 (8 Junio 2026) - Diálogos Leer Presupuesto, Leer Producto, Gestionar Clientes y Gestionar Contactos redimensionables (arrastrando la esquina inferior derecha)
@@ -3915,7 +3919,7 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
 
   // Nombre del fichero (limpiar caracteres no válidos para Windows)
   const numCompletoFich = presupuesto.numerocompleto || presupuesto.np || "";
-  const nombreFichero = `Oferta SIEMENS ${numCompletoFich} Rev.${presupuesto.revision} - ${presupuesto.titulo} - ${presupuesto.cliente}`
+  const nombreFichero = `Oferta SIEMENS ${numCompletoFich} Rev ${presupuesto.revision} - ${presupuesto.titulo} - ${presupuesto.cliente}`
     .replace(/[\\/:*?"<>|]/g, "-");
 
   // Fecha actual en formato largo español
@@ -3988,7 +3992,7 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
   // ── Construir matriz de datos ──
   const aoa = [];
   const numCompleto = presupuesto.numerocompleto || presupuesto.np || "";
-  aoa.push([null, `OFERTA SIEMENS — ${numCompleto} Rev.${presupuesto.revision}`]);
+  aoa.push([null, `OFERTA SIEMENS — ${numCompleto} Revisión ${presupuesto.revision}`]);
   aoa.push([]);
   aoa.push([null, null, null, "Presupuesto Descripción", presupuesto.titulo]);
   aoa.push([null, null, null, "Cliente",                 presupuesto.cliente]);
@@ -8656,7 +8660,45 @@ function ActualizarProductosDialog({ datos, onClose, setStatus }) {
   );
 }
 
-export default function App() {
+// ── Error Boundary: evita que un fallo de render deje la app en blanco ──
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    // Registrar para diagnóstico en consola
+    console.error("[ErrorBoundary] Se ha capturado un error de render:", error, info);
+  }
+  reset = () => this.setState({ hasError: false, error: null });
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ position: "fixed", inset: 0, background: "#f8fafc", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 200000, padding: 24 }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: "2rem", maxWidth: 520, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", textAlign: "center" }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: "#b91c1c", marginBottom: 10 }}>Se ha producido un error</div>
+            <p style={{ fontSize: 13, color: "#475569", lineHeight: 1.6, marginBottom: 8 }}>
+              La aplicación encontró un problema al dibujar la pantalla, pero tus datos no se han perdido. Pulsa "Reintentar" para volver a la edición.
+            </p>
+            <p style={{ fontSize: 11, color: "#94a3b8", fontFamily: "monospace", background: "#f1f5f9", borderRadius: 6, padding: "6px 10px", marginBottom: 16, wordBreak: "break-word" }}>
+              {this.state.error ? String(this.state.error.message || this.state.error) : "Error desconocido"}
+            </p>
+            <button onClick={this.reset}
+              style={{ padding: "9px 24px", borderRadius: 6, border: "none", background: "#2563eb", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>
+              Reintentar
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function AppInner() {
   // Reset global de html/body para que no aparezca scroll de la página completa
   useEffect(() => {
     const styleEl = document.createElement("style");
@@ -10192,28 +10234,34 @@ export default function App() {
       setEditingCell(null);
       return;
     }
+    // Capturar la celda en edición ahora, por si el estado cambia durante el commit
+    const celda = editingCell;
     const rawValue = (override !== undefined && override !== null) ? override : editValue;
-    setRows(r => r.map(row => {
-      if (row.id !== editingCell.rowId) return row;
-      let value = rawValue;
-      // Columnas numéricas: aceptan coma o punto como separador decimal
-      const COLS_NUMERICAS = ["pvp", "dtoaplicado", "preciocosteunitario", "precionetounitario2"];
-      if (editingCell.colKey === "cantidad") {
-        const n = parseInt(String(rawValue).replace(",", "."), 10);
-        value = isNaN(n) ? 0 : n;
-      } else if (editingCell.colKey === "referencia") {
-        // Mantener como string siempre, no convertir a Number aunque sea numérico
-        value = String(rawValue ?? "");
-      } else if (COLS_NUMERICAS.includes(editingCell.colKey)) {
-        // Normalizar coma decimal → punto antes de convertir
-        const limpio = String(rawValue).replace(/\s/g, "").replace(",", ".");
-        const n = parseFloat(limpio);
-        value = isNaN(n) ? 0 : n;
-      } else if (!isNaN(rawValue) && rawValue !== "") {
-        value = Number(rawValue);
-      }
-      return { ...row, [editingCell.colKey]: value };
-    }));
+    try {
+      setRows(r => r.map(row => {
+        if (row.id !== celda.rowId) return row;
+        let value = rawValue;
+        // Columnas numéricas: aceptan coma o punto como separador decimal
+        const COLS_NUMERICAS = ["pvp", "dtoaplicado", "preciocosteunitario", "precionetounitario2"];
+        if (celda.colKey === "cantidad") {
+          const n = parseInt(String(rawValue).replace(",", "."), 10);
+          value = isNaN(n) ? 0 : n;
+        } else if (celda.colKey === "referencia") {
+          // Mantener como string siempre, no convertir a Number aunque sea numérico
+          value = String(rawValue ?? "");
+        } else if (COLS_NUMERICAS.includes(celda.colKey)) {
+          // Normalizar coma decimal → punto antes de convertir
+          const limpio = String(rawValue).replace(/\s/g, "").replace(",", ".");
+          const n = parseFloat(limpio);
+          value = isNaN(n) ? 0 : n;
+        } else if (!isNaN(rawValue) && rawValue !== "") {
+          value = Number(rawValue);
+        }
+        return { ...row, [celda.colKey]: value };
+      }));
+    } catch (err) {
+      console.error("[commitEdit] error al guardar la celda:", err);
+    }
     setEditingCell(null);
   };
 
@@ -10307,7 +10355,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.94.2 (8 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.96.0 (8 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -10711,8 +10759,21 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.94.2 (8 Junio 2026)</span>
-        {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.96.0 (8 Junio 2026)</span>
+        <span
+          onClick={() => handleAction("AplicarEstructura")}
+          title="Pulsa para activar o desactivar la estructura"
+          style={{
+            background: estructuraActiva ? "#dcfce7" : "#f1f5f9",
+            color: estructuraActiva ? "#14532d" : "#64748b",
+            fontSize: 11, padding: "2px 8px", borderRadius: 99,
+            display: "inline-flex", alignItems: "center", gap: 4,
+            border: `1px solid ${estructuraActiva ? "#86efac" : "#cbd5e1"}`,
+            cursor: "pointer", userSelect: "none",
+          }}>
+          <Icon as={Palette} size={12} color={estructuraActiva ? "#14532d" : "#64748b"} />
+          {estructuraActiva ? "Estructura activa" : "Estructura desactivada"}
+        </span>
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
             onClick={() => setUserMenuOpen(o => !o)}
@@ -12258,5 +12319,14 @@ export default function App() {
         </div>
       )}
     </div>
+  );
+}
+
+// App envuelta en el Error Boundary para evitar la pantalla en blanco ante un fallo de render
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <AppInner />
+    </ErrorBoundary>
   );
 }
