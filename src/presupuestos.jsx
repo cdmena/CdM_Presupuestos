@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.96.0 (8 Junio 2026)
+// Versión: v1.97.0 (8 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.97.0 (8 Junio 2026) - Excel Imprimir: pestaña "Condiciones Comerciales" con las condiciones particulares de suministro (negrita en títulos, hipervínculos clicables)
 //   v1.96.0 (8 Junio 2026) - Error Boundary: un fallo de render ya no deja la app en blanco (muestra aviso + Reintentar). commitEdit más defensivo (captura la celda y try/catch) para el blur del editor multilínea
 //   v1.95.0 (8 Junio 2026) - Etiqueta de estructura siempre visible: verde "Estructura activa" / gris "Estructura desactivada", clicable para alternar
 //   v1.94.4 (8 Junio 2026) - Excel Imprimir: título primera fila "Rev.N" → "Revisión N"
@@ -3539,6 +3540,58 @@ const COLS_SUBTOTAL = ["naturaleza", "posicion", "nombre", "dtoaplicado", "preci
 const COLS_COMENT   = ["naturaleza", "nombre"];
 const SUBTOTAL_NIVELES = { "S1": 1, "S2": 2, "S3": 3, "S4": 4 };
 
+// Condiciones particulares de suministro que se vuelcan en la pestaña "Condiciones Comerciales"
+// del Excel de Imprimir. Cada entrada: { texto, negrita?, enlace? }.
+const CONDICIONES_PARTICULARES_SUMINISTRO = [
+  { texto: "1. CONDICIONES PARTICULARES DE SUMINISTRO", negrita: true },
+  { texto: "" },
+  { texto: "1.1 PRECIOS", negrita: true },
+  { texto: "Se entienden netos por material puesto en punto de destino en península, sin descarga, e incluyen, si procede, embalaje terrestre normal." },
+  { texto: "Estos precios se mantendrán fijos dentro del plazo de validez de la presente oferta, siempre y cuando su pedido tenga un importe mínimo de 1.000 €." },
+  { texto: "Dichos precios no incluyen ningún tipo de montaje ni puesta en marcha del Alcance del Contrato." },
+  { texto: "En los precios indicados no está incluido el I.V.A., que será reflejado por separado en factura." },
+  { texto: "Una vez formalizado el Contrato o realizado el suministro total o parcial del mismo, no se aceptarán anulaciones de pedido o devoluciones de los productos suministrados." },
+  { texto: "" },
+  { texto: "1.2 PLAZO DE ENTREGA", negrita: true },
+  { texto: "El plazo de entrega mostrado para cada posición del pedido se entiende orientativo, y para el caso de que el Contrato se formalizase en la fecha de emisión de la oferta." },
+  { texto: "El plazo se recalculará a partir de la fecha de recepción de su pedido, una vez esté técnica y comercialmente aclarado en todos sus puntos y, en su caso, una vez hecho efectivo el anticipo o el primer hito de pago, y/o aportadas las garantías de pago solicitadas." },
+  { texto: "El plazo de entrega final se confirmará con la formalización del Contrato." },
+  { texto: "" },
+  { texto: "1.3 CONDICIONES DE PAGO", negrita: true },
+  { texto: "Hito 1: 25% del precio del Contrato. Pago mediante transferencia al contado." },
+  { texto: "Hito 2: 75% a la entrega o puesta a disposición del Alcance del Contrato, admitiéndose suministros, facturaciones y cobros parciales." },
+  { texto: "Los pagos correspondientes al hito 2 se realizarán mediante transferencia o confirming a 60 días fecha devengo." },
+  { texto: "En el caso de existir unas condiciones de pago acordadas previamente por las partes, éstas prevalecerán." },
+  { texto: "" },
+  { texto: "1.4 RETRASOS EN LA ENTREGA POR CAUSAS IMPUTABLES AL CLIENTE", negrita: true },
+  { texto: "Si no fuese posible el suministro por causas ajenas a Siemens, se llevará a cabo la facturación una vez notificada al Cliente la disponibilidad del Alcance para su envío." },
+  { texto: "Se traspasará al Cliente el riesgo de los suministros y Siemens se reserva el derecho a repercutir los gastos que ello origine." },
+  { texto: "" },
+  { texto: "1.5 PERSONALIDAD JURÍDICA DEL DESTINATARIO FINAL", negrita: true },
+  { texto: "Si la persona jurídica que realiza el pedido (Contrato) no es la misma a la que se dirige esta oferta (Alcance), Siemens podrá modificarla, cancelarla y/o exigir garantías de pago adicionales." },
+  { texto: "" },
+  { texto: "1.6 PUESTA EN MARCHA", negrita: true },
+  { texto: "La puesta en marcha no se encuentra incluida en el Alcance del Contrato." },
+  { texto: "" },
+  { texto: "1.7 POLÍTICA ANTICORRUPCIÓN", negrita: true },
+  { texto: "El Cliente declara y garantiza que cumple con todas las normas y leyes aplicables a su negocio." },
+  { texto: "No realiza pagos u ofrece nada de valor, directa o indirectamente, a ningún gobierno o empleado administrativo para conseguir o conservar un negocio." },
+  { texto: "Respeta los derechos humanos básicos de sus empleados, así como su salud y seguridad." },
+  { texto: "Prohíbe el trabajo infantil y fomenta la protección del medio ambiente." },
+  { texto: "Las Partes se comprometen a incorporar en el Contrato cláusulas globales que garanticen el cumplimiento normativo." },
+  { texto: "Para Siemens, esta condición previa es necesaria para la validez del Contrato." },
+  { texto: "" },
+  { texto: "2. CONDICIONES CONTRACTUALES", negrita: true },
+  { texto: "Para todo lo no previsto expresamente en el presente Contrato, regirán nuestras Condiciones Contractuales, disponibles en los siguientes enlaces:" },
+  { texto: "" },
+  { texto: "Condiciones Básicas España", enlace: "https://www.siemens.com/sts-base-terms-esp" },
+  { texto: "Condiciones Complementarias de Hardware", enlace: "https://www.siemens.com/sts-st-hardware" },
+  { texto: "Condiciones Complementarias de Servicios", enlace: "https://www.siemens.com/sts-st-services" },
+  { texto: "Condiciones Complementarias de Soluciones", enlace: "https://www.siemens.com/sts-st-solutions" },
+  { texto: "Condiciones Complementarias Específicas para Software local del negocio de Infraestructura e Industria", enlace: "https://www.siemens.com/sts-st-software" },
+  { texto: "Condiciones Generales de Software y Complementarias para Servicios en la Nube", enlace: "https://www.siemens.com/sts-st-cloud" },
+];
+
 const ESTILOS_DEFAULT = {
   T1:    { bg: "#dcfce7", color: "#14532d", fontFamily: "Segoe UI", fontWeight: 700, fontSize: 11 },
   T2:    { bg: "#fee2e2", color: "#7c2d12", fontFamily: "Segoe UI", fontWeight: 600, fontSize: 11 },
@@ -4222,27 +4275,35 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Hoja1");
 
-  // Segunda hoja: condiciones comerciales
-  const wsCond = XLSX.utils.aoa_to_sheet([
-    ["Condiciones Comerciales"],
-    [],
-    ["Forma de pago:",     "60 días F.F."],
-    ["Plazo de entrega:",  "Consultar"],
-    ["Validez de oferta:", "30 días"],
-    [],
-    ["IVA no incluido."],
-  ]);
-  wsCond["!cols"] = [{ wch: 25 }, { wch: 50 }];
-  // Título de la hoja
-  if (wsCond["A1"]) {
-    wsCond["A1"].s = {
-      font: { name: "Calibri", sz: 14, bold: true, color: { rgb: C.HEADER_TEXT } },
-      fill: { patternType: "solid", fgColor: { rgb: C.HEADER } },
-      alignment: { horizontal: "center", vertical: "center" },
+  // Segunda hoja: condiciones comerciales (a partir de CONDICIONES_PARTICULARES_SUMINISTRO)
+  const condAoa = CONDICIONES_PARTICULARES_SUMINISTRO.map(c => [c.texto || ""]);
+  const wsCond = XLSX.utils.aoa_to_sheet(condAoa);
+  wsCond["!cols"] = [{ wch: 120 }];
+  const condRows = [];
+  CONDICIONES_PARTICULARES_SUMINISTRO.forEach((c, i) => {
+    const addr = XLSX.utils.encode_cell({ r: i, c: 0 });
+    const cell = wsCond[addr];
+    const esTitulo = c.negrita && /^\d/.test(String(c.texto).trim()); // "1.", "1.1", "2." → título
+    const esEnlace = !!c.enlace;
+    if (!cell) { condRows.push({ hpt: 15 }); return; }
+    cell.s = {
+      font: {
+        name: "Calibri",
+        sz: esTitulo ? (/^\d\.\s/.test(c.texto) || /^\d\.$/.test(c.texto.trim()) ? 12 : 11) : 10,
+        bold: !!c.negrita || esEnlace,
+        color: { rgb: esEnlace ? "0563C1" : "000000" },
+        underline: esEnlace,
+      },
+      alignment: { horizontal: "left", vertical: "center", wrapText: true, indent: esTitulo ? 0 : 1 },
     };
-  }
-  wsCond["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 1 } }];
-  wsCond["!rows"] = [{ hpt: 26 }];
+    // Hipervínculo clicable
+    if (esEnlace) {
+      cell.l = { Target: c.enlace, Tooltip: c.enlace };
+    }
+    // Altura de fila: títulos algo más altos; líneas largas se ajustan
+    condRows.push({ hpt: c.texto === "" ? 8 : (esTitulo ? 20 : 15) });
+  });
+  wsCond["!rows"] = condRows;
   XLSX.utils.book_append_sheet(wb, wsCond, "Condiciones Comerciales");
 
   descargarXLSX(wb, nombreFichero + ".xlsx");
@@ -10355,7 +10416,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.96.0 (8 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.97.0 (8 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -10759,7 +10820,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.96.0 (8 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.97.0 (8 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
