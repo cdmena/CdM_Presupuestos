@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.93.0 (7 Junio 2026)
+// Versión: v1.94.2 (8 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,9 @@ import { useState, useRef, useCallback, useEffect } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.94.2 (8 Junio 2026) - Leer Presupuesto: importe total y netos con punto de miles también en 4 cifras (useGrouping always)
+//   v1.94.1 (8 Junio 2026) - Diálogo Leer Elemento también redimensionable
+//   v1.94.0 (8 Junio 2026) - Diálogos Leer Presupuesto, Leer Producto, Gestionar Clientes y Gestionar Contactos redimensionables (arrastrando la esquina inferior derecha)
 //   v1.93.0 (7 Junio 2026) - Todos los recuadros de log (progreso) tienen ahora botón Exportar CSV además de Limpiar log (helper exportarLogCSV)
 //   v1.92.0 (7 Junio 2026) - Ayuda actualizada: menús al día (conf/TP, Guardar Producto con actualización, contactos con teléfonos, login, formato numérico, etc.)
 //   v1.91.1 (7 Junio 2026) - Mantenimiento BD tabla Contactos: importa también Teléfono 1 y Teléfono 2 desde Excel
@@ -2922,7 +2925,7 @@ function MantenimientoSection({ setStatus }) {
       {/* Diálogo Logs */}
       {logsDialog && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }}>
-          <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "95%", maxWidth: 1100, maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "95%", maxWidth: 1100, maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
 
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, borderBottom: "1px solid #e2e8f0", paddingBottom: 12, flexShrink: 0 }}>
               <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -5289,7 +5292,7 @@ function LeerPresupuestosDialog({ onClose, onCargar, setStatus }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "90%", maxWidth: 1000, maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "90%", maxWidth: 1000, height: "85vh", maxHeight: "92vh", minWidth: 480, minHeight: 320, display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", resize: "both", overflow: "auto" }} onClick={e => e.stopPropagation()}>
 
         {/* Cabecera */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, borderBottom: "1px solid #e2e8f0", paddingBottom: 12, flexShrink: 0 }}>
@@ -5378,7 +5381,7 @@ function LeerPresupuestosDialog({ onClose, onCargar, setStatus }) {
                     <td style={{ padding: "6px 10px", textAlign: "center", color: "#64748b", fontSize: 11, whiteSpace: "nowrap" }}>{formatearFecha(p.fecha)}</td>
                     <td style={{ padding: "6px 10px" }}>{p.titulo}</td>
                     <td style={{ padding: "6px 10px", color: "#475569" }}>{p.nombrecomun || p.razonsocial}</td>
-                    <td style={{ padding: "6px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>{(Number(p.totalpresupuesto) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</td>
+                    <td style={{ padding: "6px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>{(Number(p.totalpresupuesto) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" })} €</td>
                     <td style={{ padding: "6px 10px", textAlign: "right", color: "#64748b", fontFamily: "monospace", whiteSpace: "nowrap" }}>{p.id}</td>
                   </tr>
                 );
@@ -5435,7 +5438,7 @@ function LeerPresupuestosDialog({ onClose, onCargar, setStatus }) {
                           <td style={{ padding: "4px 8px", color: "#1e3a5f", fontFamily: "monospace", whiteSpace: "nowrap", fontWeight: 600, width: 115 }}>{d.referencia || ""}</td>
                           <td style={{ padding: "4px 8px", color: "#171717" }}>{d.nombre || ""}</td>
                           <td style={{ padding: "4px 8px", textAlign: "right", color: "#525252" }}>{(Number(d.dtoaplicado) || 0).toLocaleString("es-ES", { minimumFractionDigits: 1 })}</td>
-                          <td style={{ padding: "4px 8px", textAlign: "right", color: "#0369a1", fontWeight: 600, whiteSpace: "nowrap" }}>{(Number(d.precionetoposicion) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €</td>
+                          <td style={{ padding: "4px 8px", textAlign: "right", color: "#0369a1", fontWeight: 600, whiteSpace: "nowrap" }}>{(Number(d.precionetoposicion) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" })} €</td>
                           <td style={{ padding: "4px 8px", color: "#737373" }}>{d.familia || ""}</td>
                           <td style={{ padding: "4px 8px", color: "#737373" }}>{d.subfamilia || ""}</td>
                         </tr>
@@ -5663,7 +5666,7 @@ function ContactosDialog({ onClose, setStatus }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }} onClick={onClose}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "95%", maxWidth: 1100, maxHeight: "90vh", overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "95%", maxWidth: 1100, height: "85vh", maxHeight: "92vh", minWidth: 480, minHeight: 320, overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", resize: "both" }} onClick={e => e.stopPropagation()}>
         {/* Cabecera */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingBottom: 12, borderBottom: "1px solid #e5e5e5" }}>
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#171717", display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -6221,7 +6224,7 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "95%", maxWidth: 1280, maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "95%", maxWidth: 1280, height: "88vh", maxHeight: "94vh", minWidth: 520, minHeight: 340, display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", resize: "both", overflow: "auto" }} onClick={e => e.stopPropagation()}>
 
         {/* Datalist único para autocompletar provincias */}
         <datalist id="lista-provincias">
@@ -6752,7 +6755,7 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "95%", maxWidth: 1100, maxHeight: "92vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "95%", maxWidth: 1100, height: "85vh", maxHeight: "92vh", minWidth: 480, minHeight: 320, display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", resize: "both", overflow: "auto" }} onClick={e => e.stopPropagation()}>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, borderBottom: "1px solid #e2e8f0", paddingBottom: 12, flexShrink: 0 }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -7290,7 +7293,7 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "90%", maxWidth: 1000, maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "90%", maxWidth: 1000, height: "85vh", maxHeight: "92vh", minWidth: 480, minHeight: 320, display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", resize: "both", overflow: "auto" }} onClick={e => e.stopPropagation()}>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, borderBottom: "1px solid #e2e8f0", paddingBottom: 12, flexShrink: 0 }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -10304,7 +10307,7 @@ export default function App() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.93.0 (7 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.94.2 (8 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -10708,7 +10711,7 @@ export default function App() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.93.0 (7 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.94.2 (8 Junio 2026)</span>
         {estructuraActiva && <span style={{ background: "#dcfce7", color: "#14532d", fontSize: 11, padding: "2px 8px", borderRadius: 99, display: "inline-flex", alignItems: "center", gap: 4, border: "1px solid #86efac" }}><Icon as={Palette} size={12} color="#14532d" /> Estructura activa</span>}
         <div style={{ marginLeft: "auto", position: "relative" }}>
           <button
