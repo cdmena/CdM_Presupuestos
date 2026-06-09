@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.02.1 (9 Junio 2026)
+// Versión: v2.02.2 (9 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.02.2 (9 Junio 2026) - Equivalencia Competencia: el diálogo ya no se cierra tras Sustituir o Crear nueva fila
 //   v2.02.1 (9 Junio 2026) - Equivalencia Competencia: botón "Crear nueva fila" junto a Sustituir, que inserta una nueva fila con la referencia Siemens debajo de la actual
 //   v2.02.0 (9 Junio 2026) - Nueva función Buscar equivalencia Competencia: busca la referencia en productoscompetencia, muestra sus equivalencias Siemens (tipo/comentario) y permite sustituir la referencia de la celda
 //   v2.01.3 (9 Junio 2026) - Excel Imprimir: en filas comentario (CM) el estilo se aplica solo a la columna Producto
@@ -9418,14 +9419,12 @@ function EquivalenciaCompetenciaDialog({ datos, onClose, onSustituir, onCrearFil
     if (!refSiemens) return;
     onSustituir(refSiemens);
     setStatus && setStatus(`Referencia sustituida por ${refSiemens}`, "success");
-    onClose();
   };
 
   const crearFila = (refSiemens) => {
     if (!refSiemens) return;
     onCrearFila(refSiemens);
     setStatus && setStatus(`Nueva fila creada con ${refSiemens}`, "success");
-    onClose();
   };
 
   return (
@@ -11239,7 +11238,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.02.1 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.02.2 (9 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -11643,7 +11642,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.02.1 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.02.2 (9 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
@@ -12448,7 +12447,6 @@ function AppInner() {
               const idx = r.findIndex(row => row.id === equivalenciaDialog.rowId);
               let nextLocalId = Math.max(...r.map(x => x.id), 0) + 1;
               nextId.current = nextLocalId + 1;
-              const base = idx !== -1 ? r[idx] : null;
               const nueva = {
                 id: nextLocalId,
                 representacion: "", naturaleza: "PD", posicion: "", cantidad: 1,
