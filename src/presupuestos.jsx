@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.02.0 (9 Junio 2026)
+// Versión: v2.02.1 (9 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.02.1 (9 Junio 2026) - Equivalencia Competencia: botón "Crear nueva fila" junto a Sustituir, que inserta una nueva fila con la referencia Siemens debajo de la actual
 //   v2.02.0 (9 Junio 2026) - Nueva función Buscar equivalencia Competencia: busca la referencia en productoscompetencia, muestra sus equivalencias Siemens (tipo/comentario) y permite sustituir la referencia de la celda
 //   v2.01.3 (9 Junio 2026) - Excel Imprimir: en filas comentario (CM) el estilo se aplica solo a la columna Producto
 //   v2.01.2 (9 Junio 2026) - Mantenimiento detalledescuentos: el grupo descuento puede indicarse por código (grupodescuentospain) y se resuelve su idgrupodescuento desde la tabla gruposdescuento
@@ -9396,7 +9397,7 @@ function EstrategiasDescuentoDialog({ onClose, onAplicar, setStatus }) {
 // ── Diálogo Buscar equivalencia Competencia ──
 // Busca la referencia (de competencia) y muestra sus equivalencias Siemens.
 // Permite sustituir en la celda la referencia de competencia por la de Siemens.
-function EquivalenciaCompetenciaDialog({ datos, onClose, onSustituir, setStatus }) {
+function EquivalenciaCompetenciaDialog({ datos, onClose, onSustituir, onCrearFila, setStatus }) {
   const { referencia } = datos;
   const [cargando, setCargando] = useState(true);
   const [resultado, setResultado] = useState(null); // respuesta del backend
@@ -9417,6 +9418,13 @@ function EquivalenciaCompetenciaDialog({ datos, onClose, onSustituir, setStatus 
     if (!refSiemens) return;
     onSustituir(refSiemens);
     setStatus && setStatus(`Referencia sustituida por ${refSiemens}`, "success");
+    onClose();
+  };
+
+  const crearFila = (refSiemens) => {
+    if (!refSiemens) return;
+    onCrearFila(refSiemens);
+    setStatus && setStatus(`Nueva fila creada con ${refSiemens}`, "success");
     onClose();
   };
 
@@ -9486,11 +9494,18 @@ function EquivalenciaCompetenciaDialog({ datos, onClose, onSustituir, setStatus 
                         <td style={{ padding: "6px 8px", color: "#475569" }}>{e.comentario || "—"}</td>
                         <td style={{ padding: "6px 8px", textAlign: "right", color: "#0369a1", fontWeight: 600 }}>{fmtEur(Number(e.pvp_siemens) || 0)}</td>
                         <td style={{ padding: "6px 8px", textAlign: "center" }}>
-                          <button onClick={() => sustituir(e.referencia_siemens)} disabled={!e.referencia_siemens}
-                            title="Sustituir en la celda por esta referencia Siemens"
-                            style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: e.referencia_siemens ? "#16a34a" : "#cbd5e1", color: "#fff", cursor: e.referencia_siemens ? "pointer" : "default", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
-                            <Icon as={Repeat} size={12} color="#fff" /> Sustituir
-                          </button>
+                          <div style={{ display: "inline-flex", gap: 6 }}>
+                            <button onClick={() => sustituir(e.referencia_siemens)} disabled={!e.referencia_siemens}
+                              title="Sustituir en la celda por esta referencia Siemens"
+                              style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: e.referencia_siemens ? "#16a34a" : "#cbd5e1", color: "#fff", cursor: e.referencia_siemens ? "pointer" : "default", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+                              <Icon as={Repeat} size={12} color="#fff" /> Sustituir
+                            </button>
+                            <button onClick={() => crearFila(e.referencia_siemens)} disabled={!e.referencia_siemens}
+                              title="Crear una nueva fila con esta referencia Siemens"
+                              style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: e.referencia_siemens ? "#2563eb" : "#cbd5e1", color: "#fff", cursor: e.referencia_siemens ? "pointer" : "default", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+                              <Icon as={Plus} size={12} color="#fff" /> Crear nueva fila
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -11224,7 +11239,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.02.0 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.02.1 (9 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -11628,7 +11643,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.02.0 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.02.1 (9 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
@@ -12427,6 +12442,26 @@ function AppInner() {
                 ? { ...row, referencia: refSiemens }
                 : row
             ));
+          }}
+          onCrearFila={(refSiemens) => {
+            setRows(r => {
+              const idx = r.findIndex(row => row.id === equivalenciaDialog.rowId);
+              let nextLocalId = Math.max(...r.map(x => x.id), 0) + 1;
+              nextId.current = nextLocalId + 1;
+              const base = idx !== -1 ? r[idx] : null;
+              const nueva = {
+                id: nextLocalId,
+                representacion: "", naturaleza: "PD", posicion: "", cantidad: 1,
+                referencia: refSiemens, nombre: "", pvp: 0, dtoaplicado: 0,
+                descripcion: "", familia: "", subfamilia: "",
+                preciocosteunitario: 0, idposicion: "", imagen: "",
+                precionetounitario2: 0, grupodescuento: "",
+              };
+              if (idx === -1) return [...r, nueva];
+              const res = [...r];
+              res.splice(idx + 1, 0, nueva); // insertar justo debajo de la fila actual
+              return res;
+            });
           }}
         />
       )}
