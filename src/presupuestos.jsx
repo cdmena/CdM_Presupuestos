@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.01.1 (9 Junio 2026)
+// Versión: v2.01.2 (9 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.01.2 (9 Junio 2026) - Mantenimiento detalledescuentos: el grupo descuento puede indicarse por código (grupodescuentospain) y se resuelve su idgrupodescuento desde la tabla gruposdescuento
 //   v2.01.1 (9 Junio 2026) - Mantenimiento detalledescuentos: si el iddescuento no existe en la tabla descuentos se omite la fila; nuevo botón para crear una estrategia (cabecera) con nombre y descripción
 //   v2.01.0 (9 Junio 2026) - Mantenimiento BD: nuevo apartado para importar/actualizar la tabla detalledescuentos desde Excel (iddescuento + idgrupodescuento + descuento, toggle existente SÍ/NO)
 //   v2.00.2 (9 Junio 2026) - Iconos en los botones del diálogo Asistente de Referencias (X en Cerrar, Check en Insertar)
@@ -2651,16 +2652,17 @@ function MantenimientoSection({ setStatus }) {
         setStatus={setStatus}
         config={{
           titulo: "Detalle de descuentos (estrategias)",
-          descripcion: "Importa o actualiza líneas de detalledescuentos desde un Excel. Columnas obligatorias: 'iddescuento' (id de la estrategia) e 'idgrupodescuento' (id del grupo descuento). Opcional: 'descuento' (porcentaje). Se considera que una línea ya existe cuando coinciden iddescuento e idgrupodescuento.",
+          descripcion: "Importa o actualiza líneas de detalledescuentos desde un Excel. Columna obligatoria: 'iddescuento' (id de la estrategia, que debe existir). El grupo descuento se indica con 'idgrupodescuento' (id) o con 'grupodescuentospain' (código, se busca su id automáticamente). Opcional: 'descuento' (porcentaje). Una línea ya existe cuando coinciden iddescuento e idgrupodescuento.",
           icono: Percent,
           color: "#7c3aed",
           columnas: [
             { claves: ["iddescuento", "id descuento", "idestrategia", "id estrategia"], destino: "iddescuento", label: "ID Descuento", obligatoria: true },
-            { claves: ["idgrupodescuento", "id grupo descuento", "idgrupo", "id grupo"], destino: "idgrupodescuento", label: "ID Grupo Descuento", obligatoria: true },
+            { claves: ["idgrupodescuento", "id grupo descuento", "idgrupo", "id grupo"], destino: "idgrupodescuento", label: "ID Grupo Descuento", obligatoria: false },
+            { claves: ["grupodescuentospain", "grupo descuento spain", "grupodescuento", "grupo descuento", "codigo grupo", "código grupo"], destino: "grupodescuentospain", label: "Grupo Descuento (código)", obligatoria: false },
             { claves: ["descuento", "dto", "porcentaje", "%"], destino: "descuento", label: "Descuento", obligatoria: false },
           ],
           cargarContexto: async () => {
-            const ctx = { detalle: [], estrategias: [] };
+            const ctx = { detalle: [], estrategias: [], grupos: [] };
             try {
               const r = await fetch(`${API_URL}/descuentos/detalle/listar`);
               if (r.ok) ctx.detalle = await r.json();
@@ -2669,13 +2671,29 @@ function MantenimientoSection({ setStatus }) {
               const re = await fetch(`${API_URL}/descuentos/`);
               if (re.ok) ctx.estrategias = await re.json();
             } catch {}
+            try {
+              const rg = await fetch(`${API_URL}/gruposdescuento/`);
+              if (rg.ok) ctx.grupos = await rg.json();
+            } catch {}
             return ctx;
           },
           procesarFila: async (datos, ctx, sobreescribir, addLog, nFila) => {
             const iddescuento = parseInt(String(datos.iddescuento).replace(/\D/g, ""), 10);
-            const idgrupodescuento = parseInt(String(datos.idgrupodescuento).replace(/\D/g, ""), 10);
+            // idgrupodescuento puede venir directo o resolverse desde grupodescuentospain
+            let idgrupodescuento = NaN;
+            if (datos.idgrupodescuento !== undefined && String(datos.idgrupodescuento).trim() !== "") {
+              idgrupodescuento = parseInt(String(datos.idgrupodescuento).replace(/\D/g, ""), 10);
+            } else if (datos.grupodescuentospain !== undefined && String(datos.grupodescuentospain).trim() !== "") {
+              const cod = String(datos.grupodescuentospain).trim().toUpperCase();
+              const g = (ctx.grupos || []).find(x => String(x.grupodescuentospain || "").trim().toUpperCase() === cod);
+              if (!g) {
+                addLog(`Fila ${nFila}: el grupo descuento "${datos.grupodescuentospain}" no existe, se omite`, "error");
+                return "error";
+              }
+              idgrupodescuento = Number(g.id);
+            }
             if (isNaN(iddescuento) || isNaN(idgrupodescuento)) {
-              addLog(`Fila ${nFila}: iddescuento o idgrupodescuento no válidos, se omite`, "error");
+              addLog(`Fila ${nFila}: falta iddescuento o el grupo descuento (idgrupodescuento o grupodescuentospain), se omite`, "error");
               return "error";
             }
             // El iddescuento debe existir en la tabla descuentos; si no, se salta la fila
@@ -11068,7 +11086,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.01.1 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.01.2 (9 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -11472,7 +11490,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.01.1 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.01.2 (9 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
