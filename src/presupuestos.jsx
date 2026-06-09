@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.00.0 (9 Junio 2026)
+// Versión: v2.01.1 (9 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,10 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.01.1 (9 Junio 2026) - Mantenimiento detalledescuentos: si el iddescuento no existe en la tabla descuentos se omite la fila; nuevo botón para crear una estrategia (cabecera) con nombre y descripción
+//   v2.01.0 (9 Junio 2026) - Mantenimiento BD: nuevo apartado para importar/actualizar la tabla detalledescuentos desde Excel (iddescuento + idgrupodescuento + descuento, toggle existente SÍ/NO)
+//   v2.00.2 (9 Junio 2026) - Iconos en los botones del diálogo Asistente de Referencias (X en Cerrar, Check en Insertar)
+//   v2.00.1 (9 Junio 2026) - Iconos en todos los botones del diálogo Estrategias Descuento (Plus, Edit3, Trash2, Save, X, Check)
 //   v2.00.0 (9 Junio 2026) - Nuevo: Descuentos → Gestionar Estrategias Descuento (CRUD de estrategias de la tabla descuentos/detalledescuentos + aplicar al presupuesto por grupo). Quitado "Gestionar Descuentos" de Otros
 //   v1.99.1 (9 Junio 2026) - Asistente Referencias: opciones ordenadas por posición y, dentro de cada posición, por referencia (posición -1 al final)
 //   v1.99.0 (9 Junio 2026) - Asistente Referencias: búsqueda automática en BD al montar la referencia; lista de productos cuya referencia empieza por la montada (como el autocompletado del grid); se elige uno e inserta
@@ -1792,6 +1796,33 @@ function MantenimientoSection({ setStatus }) {
   const [showSubfamiliasDialog, setShowSubfamiliasDialog] = useState(false);
   const [actualizandoMasusado, setActualizandoMasusado] = useState(false);
   const [ultimoResultadoMasusado, setUltimoResultadoMasusado] = useState(null);
+  // Crear nueva estrategia de descuento (tabla descuentos)
+  const [nuevaEstrNombre, setNuevaEstrNombre] = useState("");
+  const [nuevaEstrDesc, setNuevaEstrDesc] = useState("");
+  const [creandoEstr, setCreandoEstr] = useState(false);
+  const [ultimaEstrCreada, setUltimaEstrCreada] = useState(null);
+
+  const crearEstrategia = async () => {
+    const nombre = nuevaEstrNombre.trim();
+    if (!nombre) { setStatus && setStatus("Indica un nombre para la nueva estrategia", "error"); return; }
+    setCreandoEstr(true);
+    try {
+      const r = await fetch(`${API_URL}/descuentos/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nombre, descripcion: nuevaEstrDesc.trim() || null, detalle: [] }),
+      });
+      if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
+      const data = await r.json();
+      setUltimaEstrCreada({ id: data.id, nombre });
+      setStatus && setStatus(`Estrategia "${nombre}" creada con id ${data.id}`, "success");
+      setNuevaEstrNombre(""); setNuevaEstrDesc("");
+    } catch (e) {
+      setStatus && setStatus("Error al crear la estrategia: " + e.message, "error");
+    } finally {
+      setCreandoEstr(false);
+    }
+  };
 
   // ─── Comprobar integridad referencial de la BD ───
   const [integridadLog, setIntegridadLog] = useState([]);
@@ -2579,6 +2610,110 @@ function MantenimientoSection({ setStatus }) {
               const nuevo = await r.json();
               if (nuevo && nuevo.id) ctx.contactos.push({ ...body, id: nuevo.id });
               addLog(`Fila ${nFila}: "${datos.nombre}" (${cli.nombrecomun}) → CREADO`, "success");
+              return "nuevo";
+            }
+          },
+        }}
+      />
+
+      {/* Crear una nueva estrategia de descuento (tabla descuentos) */}
+      <div style={{ marginBottom: 20, padding: "14px 18px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#171717", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+          <Icon as={Plus} size={16} color="#7c3aed" /> Crear estrategia de descuento
+        </h3>
+        <p style={{ fontSize: 12, color: "#525252", marginBottom: 12, lineHeight: 1.5 }}>
+          Crea una nueva estrategia (cabecera) en la tabla <code>descuentos</code>. Después podrás importar sus líneas de detalle abajo (usando el id que se genera) o editarla en Descuentos → Gestionar Estrategias Descuento.
+        </p>
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <div style={{ flex: "1 1 200px" }}>
+            <label style={{ fontSize: 11, color: "#525252", fontWeight: 500, display: "block", marginBottom: 3 }}>Nombre *</label>
+            <input value={nuevaEstrNombre} onChange={e => setNuevaEstrNombre(e.target.value)} placeholder="Nombre de la estrategia"
+              style={{ width: "100%", padding: "6px 8px", border: "1px solid #d4d4d4", borderRadius: 4, fontSize: 12, boxSizing: "border-box" }} />
+          </div>
+          <div style={{ flex: "1 1 200px" }}>
+            <label style={{ fontSize: 11, color: "#525252", fontWeight: 500, display: "block", marginBottom: 3 }}>Descripción</label>
+            <input value={nuevaEstrDesc} onChange={e => setNuevaEstrDesc(e.target.value)} placeholder="Descripción (opcional)"
+              style={{ width: "100%", padding: "6px 8px", border: "1px solid #d4d4d4", borderRadius: 4, fontSize: 12, boxSizing: "border-box" }} />
+          </div>
+          <button onClick={crearEstrategia} disabled={creandoEstr || !nuevaEstrNombre.trim()}
+            style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: (creandoEstr || !nuevaEstrNombre.trim()) ? "#cbd5e1" : "#7c3aed", color: "#fff", cursor: (creandoEstr || !nuevaEstrNombre.trim()) ? "default" : "pointer", fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
+            <Icon as={Plus} size={14} color="#fff" /> {creandoEstr ? "Creando..." : "Crear estrategia"}
+          </button>
+        </div>
+        {ultimaEstrCreada && (
+          <p style={{ fontSize: 12, color: "#16a34a", marginTop: 10, marginBottom: 0 }}>
+            ✓ Creada: <strong>{ultimaEstrCreada.nombre}</strong> → id <strong>{ultimaEstrCreada.id}</strong> (úsalo como iddescuento al importar el detalle)
+          </p>
+        )}
+      </div>
+
+      <ImportTablaSection
+        setStatus={setStatus}
+        config={{
+          titulo: "Detalle de descuentos (estrategias)",
+          descripcion: "Importa o actualiza líneas de detalledescuentos desde un Excel. Columnas obligatorias: 'iddescuento' (id de la estrategia) e 'idgrupodescuento' (id del grupo descuento). Opcional: 'descuento' (porcentaje). Se considera que una línea ya existe cuando coinciden iddescuento e idgrupodescuento.",
+          icono: Percent,
+          color: "#7c3aed",
+          columnas: [
+            { claves: ["iddescuento", "id descuento", "idestrategia", "id estrategia"], destino: "iddescuento", label: "ID Descuento", obligatoria: true },
+            { claves: ["idgrupodescuento", "id grupo descuento", "idgrupo", "id grupo"], destino: "idgrupodescuento", label: "ID Grupo Descuento", obligatoria: true },
+            { claves: ["descuento", "dto", "porcentaje", "%"], destino: "descuento", label: "Descuento", obligatoria: false },
+          ],
+          cargarContexto: async () => {
+            const ctx = { detalle: [], estrategias: [] };
+            try {
+              const r = await fetch(`${API_URL}/descuentos/detalle/listar`);
+              if (r.ok) ctx.detalle = await r.json();
+            } catch {}
+            try {
+              const re = await fetch(`${API_URL}/descuentos/`);
+              if (re.ok) ctx.estrategias = await re.json();
+            } catch {}
+            return ctx;
+          },
+          procesarFila: async (datos, ctx, sobreescribir, addLog, nFila) => {
+            const iddescuento = parseInt(String(datos.iddescuento).replace(/\D/g, ""), 10);
+            const idgrupodescuento = parseInt(String(datos.idgrupodescuento).replace(/\D/g, ""), 10);
+            if (isNaN(iddescuento) || isNaN(idgrupodescuento)) {
+              addLog(`Fila ${nFila}: iddescuento o idgrupodescuento no válidos, se omite`, "error");
+              return "error";
+            }
+            // El iddescuento debe existir en la tabla descuentos; si no, se salta la fila
+            const existeEstrategia = (ctx.estrategias || []).some(e => Number(e.id) === iddescuento);
+            if (!existeEstrategia) {
+              addLog(`Fila ${nFila}: la estrategia (iddescuento ${iddescuento}) no existe, se omite`, "error");
+              return "error";
+            }
+            // descuento: admite coma o punto decimal
+            let descuento = 0;
+            if (datos.descuento !== undefined && String(datos.descuento).trim() !== "") {
+              descuento = parseFloat(String(datos.descuento).replace(",", ".").replace("%", "").trim());
+              if (isNaN(descuento)) descuento = 0;
+            }
+            const body = { iddescuento, idgrupodescuento, descuento };
+            // Buscar línea existente por iddescuento + idgrupodescuento
+            const existente = (ctx.detalle || []).find(d =>
+              Number(d.iddescuento) === iddescuento && Number(d.idgrupodescuento) === idgrupodescuento
+            );
+            if (existente) {
+              if (!sobreescribir) {
+                addLog(`Fila ${nFila}: estrategia ${iddescuento} / grupo ${idgrupodescuento} → ya existe, se omite (actualizar = NO)`, "info");
+                return "omitido";
+              }
+              const r = await fetch(`${API_URL}/descuentos/detalle/${existente.id}`, {
+                method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+              });
+              if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
+              addLog(`Fila ${nFila}: estrategia ${iddescuento} / grupo ${idgrupodescuento} → ACTUALIZADO (${descuento}%)`, "success");
+              return "actualizado";
+            } else {
+              const r = await fetch(`${API_URL}/descuentos/detalle`, {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+              });
+              if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
+              const nuevo = await r.json();
+              if (nuevo && nuevo.id) ctx.detalle.push({ ...body, id: nuevo.id });
+              addLog(`Fila ${nFila}: estrategia ${iddescuento} / grupo ${idgrupodescuento} → CREADO (${descuento}%)`, "success");
               return "nuevo";
             }
           },
@@ -8983,10 +9118,10 @@ function AsistenteReferenciasDialog({ onClose, onInsertar, setStatus }) {
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
-            <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13 }}>Cerrar</button>
+            <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}><Icon as={X} size={14} color="#475569" /> Cerrar</button>
             <button onClick={insertar} disabled={!datosBD}
-              style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: !datosBD ? "#cbd5e1" : "#16a34a", color: "#fff", cursor: !datosBD ? "default" : "pointer", fontSize: 13, fontWeight: 600 }}>
-              Insertar en presupuesto
+              style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: !datosBD ? "#cbd5e1" : "#16a34a", color: "#fff", cursor: !datosBD ? "default" : "pointer", fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Icon as={Check} size={14} color="#fff" /> Insertar en presupuesto
             </button>
           </div>
         </div>
@@ -9116,7 +9251,7 @@ function EstrategiasDescuentoDialog({ onClose, onAplicar, setStatus }) {
           <div style={{ width: 280, display: "flex", flexDirection: "column", border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
             <div style={{ padding: "6px 10px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: 12, fontWeight: 600, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               <span>Estrategias {cargando ? "(...)" : `(${estrategias.length})`}</span>
-              <button onClick={nuevaEstrategia} title="Nueva estrategia" style={{ border: "none", background: "#2563eb", color: "#fff", borderRadius: 4, cursor: "pointer", padding: "2px 8px", fontSize: 11 }}>+ Nueva</button>
+              <button onClick={nuevaEstrategia} title="Nueva estrategia" style={{ border: "none", background: "#2563eb", color: "#fff", borderRadius: 4, cursor: "pointer", padding: "2px 8px", fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4 }}><Icon as={Plus} size={12} color="#fff" /> Nueva</button>
             </div>
             <div style={{ flex: 1, overflow: "auto" }}>
               {estrategias.map(e => (
@@ -9188,7 +9323,7 @@ function EstrategiasDescuentoDialog({ onClose, onAplicar, setStatus }) {
                 </table>
               )}
               {(modo === "editar" || modo === "nuevo") && (
-                <button onClick={addLineaEdit} style={{ margin: 10, padding: "5px 12px", fontSize: 12, border: "1px dashed #94a3b8", borderRadius: 6, background: "#f8fafc", color: "#475569", cursor: "pointer" }}>+ Añadir grupo descuento</button>
+                <button onClick={addLineaEdit} style={{ margin: 10, padding: "5px 12px", fontSize: 12, border: "1px dashed #94a3b8", borderRadius: 6, background: "#f8fafc", color: "#475569", cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}><Icon as={Plus} size={14} color="#475569" /> Añadir grupo descuento</button>
               )}
             </div>
           </div>
@@ -9199,21 +9334,21 @@ function EstrategiasDescuentoDialog({ onClose, onAplicar, setStatus }) {
           <div style={{ display: "flex", gap: 8 }}>
             {modo === "ver" && sel && (
               <>
-                <button onClick={editarEstrategia} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13 }}>Editar</button>
-                <button onClick={() => setConfirmBorrar(true)} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #fca5a5", background: "#fff", color: "#b91c1c", cursor: "pointer", fontSize: 13 }}>Borrar</button>
+                <button onClick={editarEstrategia} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}><Icon as={Edit3} size={14} color="#475569" /> Editar</button>
+                <button onClick={() => setConfirmBorrar(true)} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #fca5a5", background: "#fff", color: "#b91c1c", cursor: "pointer", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}><Icon as={Trash2} size={14} color="#b91c1c" /> Borrar</button>
               </>
             )}
             {(modo === "editar" || modo === "nuevo") && (
               <>
-                <button onClick={guardar} style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: "#16a34a", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Guardar</button>
-                <button onClick={() => { setModo("ver"); if (sel) seleccionar(sel); }} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13 }}>Cancelar</button>
+                <button onClick={guardar} style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: "#16a34a", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}><Icon as={Save} size={14} color="#fff" /> Guardar</button>
+                <button onClick={() => { setModo("ver"); if (sel) seleccionar(sel); }} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}><Icon as={X} size={14} color="#475569" /> Cancelar</button>
               </>
             )}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13 }}>Cerrar</button>
+            <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}><Icon as={X} size={14} color="#475569" /> Cerrar</button>
             {modo === "ver" && sel && (
-              <button onClick={aplicar} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#2563eb", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Aplicar al presupuesto</button>
+              <button onClick={aplicar} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#2563eb", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}><Icon as={Check} size={14} color="#fff" /> Aplicar al presupuesto</button>
             )}
           </div>
         </div>
@@ -9223,8 +9358,8 @@ function EstrategiasDescuentoDialog({ onClose, onAplicar, setStatus }) {
             <div style={{ background: "#fff", borderRadius: 10, padding: "1.5rem", maxWidth: 380, textAlign: "center" }} onClick={e => e.stopPropagation()}>
               <p style={{ fontSize: 14, color: "#171717", marginBottom: 16 }}>¿Borrar la estrategia "{sel?.nombre}"?</p>
               <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
-                <button onClick={() => setConfirmBorrar(false)} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontSize: 13 }}>Cancelar</button>
-                <button onClick={borrar} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#dc2626", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Borrar</button>
+                <button onClick={() => setConfirmBorrar(false)} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}><Icon as={X} size={14} color="#475569" /> Cancelar</button>
+                <button onClick={borrar} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#dc2626", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}><Icon as={Trash2} size={14} color="#fff" /> Borrar</button>
               </div>
             </div>
           </div>
@@ -10933,7 +11068,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.00.0 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.01.1 (9 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -11337,7 +11472,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.00.0 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.01.1 (9 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
