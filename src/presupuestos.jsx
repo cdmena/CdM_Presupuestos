@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.05.0 (9 Junio 2026)
+// Versión: v2.05.1 (9 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.05.1 (9 Junio 2026) - Gestionar Contactos: la tabla ocupa todo el alto del diálogo (panel flex column, lista y scroll con flex 1)
 //   v2.05.0 (9 Junio 2026) - Todos los diálogos se pueden mover arrastrando su zona superior (hook global useDialogDrag, sin tocar cada diálogo)
 //   v2.04.0 (9 Junio 2026) - Nueva función Otros → Gestionar BD Competencia: gestor de equivalencias (buscar refs competencia y Siemens, seleccionar 1-a-N, crear equivalencias con comentario/tipo y confirmación de sobrescritura)
 //   v2.03.1 (9 Junio 2026) - Equivalencia Competencia: botón "Procesar fila siguiente" que avanza a la siguiente fila del grid con referencia y busca su equivalencia sin cerrar el diálogo
@@ -5988,7 +5989,7 @@ function ContactosDialog({ onClose, setStatus }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }} onClick={onClose}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "95%", maxWidth: 1100, height: "85vh", maxHeight: "92vh", minWidth: 480, minHeight: 320, overflow: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", resize: "both" }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "95%", maxWidth: 1100, height: "85vh", maxHeight: "92vh", minWidth: 480, minHeight: 320, display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", resize: "both", overflow: "auto" }} onClick={e => e.stopPropagation()}>
         {/* Cabecera */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, paddingBottom: 12, borderBottom: "1px solid #e5e5e5" }}>
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#171717", display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -6022,9 +6023,9 @@ function ContactosDialog({ onClose, setStatus }) {
           </button>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: draft ? "1fr 380px" : "1fr", gap: 14 }}>
+        <div style={{ display: "grid", gridTemplateColumns: draft ? "1fr 380px" : "1fr", gap: 14, flex: "1 1 auto", minHeight: 0 }}>
           {/* Lista */}
-          <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, overflow: "hidden", background: "#fff" }}>
+          <div style={{ border: "1px solid #e5e5e5", borderRadius: 8, overflow: "hidden", background: "#fff", display: "flex", flexDirection: "column", minHeight: 0 }}>
             {error && <div style={{ padding: 10, color: "#991b1b", background: "#fef2f2", borderBottom: "1px solid #fecaca", fontSize: 12 }}>Error: {error}</div>}
             {cargando ? (
               <div style={{ padding: 16, textAlign: "center", color: "#737373", fontSize: 12 }}>Cargando...</div>
@@ -6033,7 +6034,7 @@ function ContactosDialog({ onClose, setStatus }) {
                 {contactos.length === 0 ? "No hay contactos" : "Ninguno coincide con la búsqueda"}
               </div>
             ) : (
-              <div style={{ maxHeight: 450, overflowY: "auto" }}>
+              <div style={{ flex: "1 1 auto", minHeight: 0, overflowY: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead style={{ position: "sticky", top: 0, background: "#fafafa", zIndex: 1 }}>
                     <tr style={{ color: "#171717", fontSize: 11 }}>
@@ -11627,7 +11628,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.05.0 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.05.1 (9 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12031,7 +12032,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.05.0 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.05.1 (9 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
