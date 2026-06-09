@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.01.2 (9 Junio 2026)
+// Versión: v2.02.0 (9 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.02.0 (9 Junio 2026) - Nueva función Buscar equivalencia Competencia: busca la referencia en productoscompetencia, muestra sus equivalencias Siemens (tipo/comentario) y permite sustituir la referencia de la celda
+//   v2.01.3 (9 Junio 2026) - Excel Imprimir: en filas comentario (CM) el estilo se aplica solo a la columna Producto
 //   v2.01.2 (9 Junio 2026) - Mantenimiento detalledescuentos: el grupo descuento puede indicarse por código (grupodescuentospain) y se resuelve su idgrupodescuento desde la tabla gruposdescuento
 //   v2.01.1 (9 Junio 2026) - Mantenimiento detalledescuentos: si el iddescuento no existe en la tabla descuentos se omite la fila; nuevo botón para crear una estrategia (cabecera) con nombre y descripción
 //   v2.01.0 (9 Junio 2026) - Mantenimiento BD: nuevo apartado para importar/actualizar la tabla detalledescuentos desde Excel (iddescuento + idgrupodescuento + descuento, toggle existente SÍ/NO)
@@ -4361,6 +4363,7 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
     const esProducto = ["PD","PE","E"].includes(meta.naturaleza);
     const esTitulo   = ["T1","T2","T3","T4"].includes(meta.naturaleza);
     const esSubtotal = ["S1","S2","S3","S4","TT"].includes(meta.naturaleza);
+    const esComentario = meta.naturaleza === "CM";
 
     // Columnas en las que aplicar el FONDO/color de fuente del estilo de la naturaleza
     let columnasConEstilo;
@@ -4368,8 +4371,10 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
       columnasConEstilo = new Set([1, 4]); // Apartado, Producto
     } else if (esSubtotal) {
       columnasConEstilo = new Set([4, 6]); // Producto, Neto Posición
+    } else if (esComentario) {
+      columnasConEstilo = new Set([4]); // Solo la columna Producto (texto del comentario)
     } else {
-      columnasConEstilo = new Set([1, 2, 3, 4, 5, 6, 7]); // toda la fila (productos PD/PE/E, CM, VERDE, GRIS, etc.)
+      columnasConEstilo = new Set([1, 2, 3, 4, 5, 6, 7]); // toda la fila (productos PD/PE/E, VERDE, GRIS, etc.)
     }
 
     for (let c = 1; c <= 7; c++) {
@@ -9388,6 +9393,125 @@ function EstrategiasDescuentoDialog({ onClose, onAplicar, setStatus }) {
   );
 }
 
+// ── Diálogo Buscar equivalencia Competencia ──
+// Busca la referencia (de competencia) y muestra sus equivalencias Siemens.
+// Permite sustituir en la celda la referencia de competencia por la de Siemens.
+function EquivalenciaCompetenciaDialog({ datos, onClose, onSustituir, setStatus }) {
+  const { referencia } = datos;
+  const [cargando, setCargando] = useState(true);
+  const [resultado, setResultado] = useState(null); // respuesta del backend
+
+  useEffect(() => {
+    setCargando(true);
+    fetch(`${API_URL}/competencia/equivalencias?referencia=${encodeURIComponent(referencia)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => setResultado(data))
+      .catch(() => setStatus && setStatus("Error consultando equivalencias", "error"))
+      .finally(() => setCargando(false));
+  }, [referencia]);
+
+  const comp = resultado?.competencia;
+  const equivalencias = resultado?.equivalencias || [];
+
+  const sustituir = (refSiemens) => {
+    if (!refSiemens) return;
+    onSustituir(refSiemens);
+    setStatus && setStatus(`Referencia sustituida por ${refSiemens}`, "success");
+    onClose();
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "90%", maxWidth: 820, maxHeight: "90vh", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", resize: "both", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <h2 style={{ fontSize: 17, fontWeight: 700, color: "#171717", margin: 0, display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <Icon as={Repeat} size={20} color="#2563eb" /> Equivalencia de Competencia
+          </h2>
+          <button onClick={onClose} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#64748b" }}><Icon as={X} size={20} /></button>
+        </div>
+
+        <p style={{ fontSize: 13, color: "#475569", margin: "0 0 14px" }}>
+          Referencia buscada: <strong style={{ fontFamily: "monospace", color: "#1e3a5f" }}>{referencia}</strong>
+        </p>
+
+        {cargando && <div style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Buscando equivalencias...</div>}
+
+        {!cargando && resultado && !resultado.encontrado && (
+          <div style={{ padding: 20, background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, color: "#991b1b", fontSize: 13 }}>
+            La referencia "{referencia}" no se encuentra en la base de datos de competencia.
+          </div>
+        )}
+
+        {!cargando && comp && (
+          <>
+            {/* Datos del producto de competencia */}
+            <div style={{ padding: "10px 14px", background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 8, marginBottom: 14, fontSize: 12 }}>
+              <div style={{ fontWeight: 700, color: "#171717", marginBottom: 4 }}>Producto de competencia</div>
+              <div style={{ display: "grid", gridTemplateColumns: "auto 1fr", gap: "2px 10px", color: "#475569" }}>
+                <span style={{ fontWeight: 600 }}>Referencia:</span><span style={{ fontFamily: "monospace" }}>{comp.referencia}</span>
+                <span style={{ fontWeight: 600 }}>Fabricante:</span><span>{comp.fabricante || "—"}</span>
+                <span style={{ fontWeight: 600 }}>Descripción:</span><span>{comp.descripcion || "—"}</span>
+                <span style={{ fontWeight: 600 }}>PVP:</span><span>{fmtEur(Number(comp.pvp) || 0)}</span>
+              </div>
+            </div>
+
+            {/* Equivalencias Siemens */}
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#171717", marginBottom: 8 }}>
+              Equivalencias Siemens {equivalencias.length > 0 ? `(${equivalencias.length})` : ""}
+            </div>
+            {equivalencias.length === 0 ? (
+              <div style={{ padding: 16, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, color: "#92400e", fontSize: 13 }}>
+                Esta referencia de competencia no tiene equivalencias Siemens registradas.
+              </div>
+            ) : (
+              <div style={{ flex: 1, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead style={{ position: "sticky", top: 0, background: "#fafafa" }}>
+                    <tr>
+                      <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "1px solid #e5e5e5" }}>Ref. Siemens</th>
+                      <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "1px solid #e5e5e5" }}>Nombre</th>
+                      <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "1px solid #e5e5e5" }}>Tipo</th>
+                      <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "1px solid #e5e5e5" }}>Comentario</th>
+                      <th style={{ padding: "6px 8px", textAlign: "right", borderBottom: "1px solid #e5e5e5" }}>PVP</th>
+                      <th style={{ padding: "6px 8px", borderBottom: "1px solid #e5e5e5" }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {equivalencias.map((e, i) => (
+                      <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                        <td style={{ padding: "6px 8px", fontFamily: "monospace", fontWeight: 600, color: "#1e3a5f" }}>{e.referencia_siemens || "(sin producto)"}</td>
+                        <td style={{ padding: "6px 8px", color: "#475569" }}>{e.nombre_siemens || "—"}</td>
+                        <td style={{ padding: "6px 8px", color: "#475569" }}>{e.tipo || "—"}</td>
+                        <td style={{ padding: "6px 8px", color: "#475569" }}>{e.comentario || "—"}</td>
+                        <td style={{ padding: "6px 8px", textAlign: "right", color: "#0369a1", fontWeight: 600 }}>{fmtEur(Number(e.pvp_siemens) || 0)}</td>
+                        <td style={{ padding: "6px 8px", textAlign: "center" }}>
+                          <button onClick={() => sustituir(e.referencia_siemens)} disabled={!e.referencia_siemens}
+                            title="Sustituir en la celda por esta referencia Siemens"
+                            style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: e.referencia_siemens ? "#16a34a" : "#cbd5e1", color: "#fff", cursor: e.referencia_siemens ? "pointer" : "default", fontSize: 11, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 4, whiteSpace: "nowrap" }}>
+                            <Icon as={Repeat} size={12} color="#fff" /> Sustituir
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16, flexShrink: 0 }}>
+          <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Icon as={X} size={14} color="#475569" /> Cerrar
+          </button>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -9785,6 +9909,7 @@ function AppInner() {
   const [showLeerElem, setShowLeerElem] = useState(false);
   const [showLeerProducto, setShowLeerProducto] = useState(false);
   const [showAsistente, setShowAsistente] = useState(false);
+  const [equivalenciaDialog, setEquivalenciaDialog] = useState(null); // { referencia, rowId, colKey } | null
   const [actualizarProductos, setActualizarProductos] = useState(null); // { existentes: [{fila, productoBD}], gruposCache } | null
   const [confirmBorrarPresup, setConfirmBorrarPresup] = useState(false);
   const [comprobarDialog, setComprobarDialog] = useState(null); // { tipo: "iguales" | "diferentes" | "no_existe", diffs: [], comparado: presupuestoBD }
@@ -10654,6 +10779,19 @@ function AppInner() {
       }
       return;
     }
+    if (action === "BuscarEquivalencia") {
+      // Toma la referencia de la celda seleccionada y abre el diálogo de equivalencias
+      if (!selectedCell) {
+        setStatus("Selecciona la celda de referencia de competencia", "error");
+        return;
+      }
+      const row = rows.find(r => r.id === selectedCell.rowId);
+      if (!row) { setStatus("No se encuentra la fila seleccionada", "error"); return; }
+      const ref = String(row.referencia || "").trim();
+      if (!ref) { setStatus("La fila seleccionada no tiene referencia", "error"); return; }
+      setEquivalenciaDialog({ referencia: ref, rowId: selectedCell.rowId, colKey: "referencia" });
+      return;
+    }
     if (action === "BuscarReferencia") {
       // 1) Determinar qué celdas procesar: la celda activa, las del rango, las de las filas marcadas
       const celdasObjetivo = []; // [{rowId, colKey}]
@@ -11086,7 +11224,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.01.2 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.02.0 (9 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -11490,7 +11628,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.01.2 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.02.0 (9 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
@@ -12278,6 +12416,20 @@ function AppInner() {
           />
         );
       })()}
+      {equivalenciaDialog && (
+        <EquivalenciaCompetenciaDialog
+          datos={equivalenciaDialog}
+          setStatus={setStatus}
+          onClose={() => setEquivalenciaDialog(null)}
+          onSustituir={(refSiemens) => {
+            setRows(r => r.map(row =>
+              row.id === equivalenciaDialog.rowId
+                ? { ...row, referencia: refSiemens }
+                : row
+            ));
+          }}
+        />
+      )}
       {showAsistente && (
         <AsistenteReferenciasDialog
           setStatus={setStatus}
