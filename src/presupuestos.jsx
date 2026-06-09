@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.03.0 (9 Junio 2026)
+// Versión: v2.03.1 (9 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.03.1 (9 Junio 2026) - Equivalencia Competencia: botón "Procesar fila siguiente" que avanza a la siguiente fila del grid con referencia y busca su equivalencia sin cerrar el diálogo
 //   v2.03.0 (9 Junio 2026) - Mantenimiento BD: nuevo apartado para importar/actualizar productoscompetencia desde Excel (referencia obligatoria; fabricante por id o nombre; toggle existente SÍ/NO)
 //   v2.02.2 (9 Junio 2026) - Equivalencia Competencia: el diálogo ya no se cierra tras Sustituir o Crear nueva fila
 //   v2.02.1 (9 Junio 2026) - Equivalencia Competencia: botón "Crear nueva fila" junto a Sustituir, que inserta una nueva fila con la referencia Siemens debajo de la actual
@@ -180,7 +181,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   v1.43.2 (27 Mayo 2026) - Usuario por defecto vacío; pastilla solo se ve tras login OK
 // ─────────────────────────────────────────────────────────────────────
 import * as XLSX from "xlsx-js-style"; // Fork de SheetJS con soporte de estilos de celda (colores, negrita, bordes)
-import { FileText, FolderOpen, Download, Upload, Printer, BarChart3, Palette, Grid3x3, Search, Eraser, MoreHorizontal, Calculator, Link2, Eye, Trash2, X, Scale, Square, MessageSquare, Plus, FileInput, Edit3, TrendingUp, Scissors, CornerDownLeft, DollarSign, Database, Repeat, Bot, HelpCircle, Settings, Percent, Users, Target, Hash, Save, RefreshCw, Home, FileSpreadsheet, MousePointer, Layers, Package, Wrench, ArrowLeft, Check, Copy, FileUp, ClipboardCheck, User, Lock, LogIn, LogOut } from "lucide-react";
+import { FileText, FolderOpen, Download, Upload, Printer, BarChart3, Palette, Grid3x3, Search, Eraser, MoreHorizontal, Calculator, Link2, Eye, Trash2, X, Scale, Square, MessageSquare, Plus, FileInput, Edit3, TrendingUp, Scissors, CornerDownLeft, DollarSign, Database, Repeat, Bot, HelpCircle, Settings, Percent, Users, Target, Hash, Save, RefreshCw, Home, FileSpreadsheet, MousePointer, Layers, Package, Wrench, ArrowLeft, Check, Copy, FileUp, ClipboardCheck, User, Lock, LogIn, LogOut, ChevronDown } from "lucide-react";
 
 // Helper para iconos outline pequeños del menú
 const Icon = ({ as: Component, size = 14, color = "currentColor" }) => Component ? (
@@ -9485,8 +9486,9 @@ function EstrategiasDescuentoDialog({ onClose, onAplicar, setStatus }) {
 // ── Diálogo Buscar equivalencia Competencia ──
 // Busca la referencia (de competencia) y muestra sus equivalencias Siemens.
 // Permite sustituir en la celda la referencia de competencia por la de Siemens.
-function EquivalenciaCompetenciaDialog({ datos, onClose, onSustituir, onCrearFila, setStatus }) {
-  const { referencia } = datos;
+function EquivalenciaCompetenciaDialog({ datos, onClose, onSustituir, onCrearFila, onSiguienteFila, setStatus }) {
+  const [referencia, setReferencia] = useState(datos.referencia);
+  const [rowId, setRowId] = useState(datos.rowId);
   const [cargando, setCargando] = useState(true);
   const [resultado, setResultado] = useState(null); // respuesta del backend
 
@@ -9504,14 +9506,24 @@ function EquivalenciaCompetenciaDialog({ datos, onClose, onSustituir, onCrearFil
 
   const sustituir = (refSiemens) => {
     if (!refSiemens) return;
-    onSustituir(refSiemens);
+    onSustituir(rowId, refSiemens);
     setStatus && setStatus(`Referencia sustituida por ${refSiemens}`, "success");
   };
 
   const crearFila = (refSiemens) => {
     if (!refSiemens) return;
-    onCrearFila(refSiemens);
+    onCrearFila(rowId, refSiemens);
     setStatus && setStatus(`Nueva fila creada con ${refSiemens}`, "success");
+  };
+
+  const siguienteFila = () => {
+    const sig = onSiguienteFila(rowId); // App devuelve { rowId, referencia } | null
+    if (!sig) {
+      setStatus && setStatus("No hay más filas con referencia después de esta", "info");
+      return;
+    }
+    setRowId(sig.rowId);
+    setReferencia(sig.referencia);
   };
 
   return (
@@ -9602,7 +9614,12 @@ function EquivalenciaCompetenciaDialog({ datos, onClose, onSustituir, onCrearFil
           </>
         )}
 
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16, flexShrink: 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 16, flexShrink: 0 }}>
+          <button onClick={siguienteFila}
+            title="Avanza a la siguiente fila del presupuesto y busca su equivalencia"
+            style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #2563eb", background: "#eff6ff", color: "#1d4ed8", cursor: "pointer", fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <Icon as={ChevronDown} size={14} color="#1d4ed8" /> Procesar fila siguiente
+          </button>
           <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
             <Icon as={X} size={14} color="#475569" /> Cerrar
           </button>
@@ -11325,7 +11342,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.03.0 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.03.1 (9 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -11729,7 +11746,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.03.0 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.03.1 (9 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
@@ -12522,16 +12539,16 @@ function AppInner() {
           datos={equivalenciaDialog}
           setStatus={setStatus}
           onClose={() => setEquivalenciaDialog(null)}
-          onSustituir={(refSiemens) => {
+          onSustituir={(rowId, refSiemens) => {
             setRows(r => r.map(row =>
-              row.id === equivalenciaDialog.rowId
+              row.id === rowId
                 ? { ...row, referencia: refSiemens }
                 : row
             ));
           }}
-          onCrearFila={(refSiemens) => {
+          onCrearFila={(rowId, refSiemens) => {
             setRows(r => {
-              const idx = r.findIndex(row => row.id === equivalenciaDialog.rowId);
+              const idx = r.findIndex(row => row.id === rowId);
               let nextLocalId = Math.max(...r.map(x => x.id), 0) + 1;
               nextId.current = nextLocalId + 1;
               const nueva = {
@@ -12547,6 +12564,16 @@ function AppInner() {
               res.splice(idx + 1, 0, nueva); // insertar justo debajo de la fila actual
               return res;
             });
+          }}
+          onSiguienteFila={(rowId) => {
+            // Busca la siguiente fila del grid (tras la actual) que tenga referencia
+            const idx = rows.findIndex(row => row.id === rowId);
+            if (idx === -1) return null;
+            for (let i = idx + 1; i < rows.length; i++) {
+              const ref = String(rows[i].referencia || "").trim();
+              if (ref) return { rowId: rows[i].id, referencia: ref };
+            }
+            return null;
           }}
         />
       )}
