@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.99.1 (9 Junio 2026)
+// Versión: v2.00.0 (9 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.00.0 (9 Junio 2026) - Nuevo: Descuentos → Gestionar Estrategias Descuento (CRUD de estrategias de la tabla descuentos/detalledescuentos + aplicar al presupuesto por grupo). Quitado "Gestionar Descuentos" de Otros
 //   v1.99.1 (9 Junio 2026) - Asistente Referencias: opciones ordenadas por posición y, dentro de cada posición, por referencia (posición -1 al final)
 //   v1.99.0 (9 Junio 2026) - Asistente Referencias: búsqueda automática en BD al montar la referencia; lista de productos cuya referencia empieza por la montada (como el autocompletado del grid); se elige uno e inserta
 //   v1.98.2 (9 Junio 2026) - Asistente Referencias: la opción SOBREESCRIBE desde la posición indicada (no inserta); referencia más grande en la lista de productos
@@ -3477,12 +3478,13 @@ const MENU_STRUCTURE = [
     { label: "Calcular Descuento", action: "CalcularDescuento", icon: Calculator, tooltip: "Calcular el descuento para obtener precio neto seleccionado en las filas seleccionadas" },
     { label: "Fijar el precio total", action: "FijarPrecioTotal", icon: Target, tooltip: "Ajusta los descuentos para alcanzar un precio total objetivo" },
     { label: "Fijar precio de celdas", action: "FijarPrecioCeldas", icon: Hash, tooltip: "Fija el precio neto de las celdas seleccionadas" },
+    { label: "---" },
+    { label: "Gestionar Estrategias Descuento", action: "GestionarEstrategias", icon: Percent, tooltip: "Consulta, crea, edita y aplica estrategias de descuento por grupo" },
   ]},
   { id: "otros", icon: MoreHorizontal, label: "Otros", tooltip: "Ayuda, opciones y bases de datos auxiliares", items: [
     { label: "Ayuda", action: "Ayuda", icon: HelpCircle, tooltip: "Muestra la ayuda con atajos y acciones del grid" },
     { label: "Opciones", action: "Opciones", icon: Settings, tooltip: "Estilos, tarifas, mantenimiento de BD, usuarios y configuración" },
     { label: "---" },
-    { label: "Gestionar Descuentos", action: "GestionarDescuentos", icon: Percent, tooltip: "Gestiona los grupos de descuento del catálogo" },
     { label: "Gestionar BD Competencia", action: "GestionarProductosCompetencia", icon: Database, tooltip: "Mantiene la base de datos de productos de la competencia" },
   ]},
 ];
@@ -8994,6 +8996,245 @@ function AsistenteReferenciasDialog({ onClose, onInsertar, setStatus }) {
   );
 }
 
+// ── Diálogo Gestionar Estrategias de Descuento ──
+// Lista de estrategias (tabla descuentos) + su detalle (detalledescuentos con grupo descuento).
+// Permite consultar, crear, editar, borrar y aplicar la estrategia al presupuesto.
+function EstrategiasDescuentoDialog({ onClose, onAplicar, setStatus }) {
+  const [estrategias, setEstrategias] = useState([]);
+  const [cargando, setCargando] = useState(true);
+  const [sel, setSel] = useState(null);            // estrategia seleccionada {id, nombre, descripcion}
+  const [detalle, setDetalle] = useState([]);      // [{idgrupodescuento, grupodescuento, descripciongrupo, descuento}]
+  const [cargandoDet, setCargandoDet] = useState(false);
+  const [modo, setModo] = useState("ver");         // "ver" | "editar" | "nuevo"
+  const [grupos, setGrupos] = useState([]);        // catálogo de grupos descuento para añadir
+  const [editNombre, setEditNombre] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editDetalle, setEditDetalle] = useState([]); // edición del detalle
+  const [confirmBorrar, setConfirmBorrar] = useState(false);
+
+  const cargarLista = () => {
+    setCargando(true);
+    fetch(`${API_URL}/descuentos/`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setEstrategias(Array.isArray(data) ? data : []))
+      .catch(() => setStatus && setStatus("No se pudieron cargar las estrategias", "error"))
+      .finally(() => setCargando(false));
+  };
+
+  useEffect(() => { cargarLista(); }, []);
+  // Catálogo de grupos descuento (para el editor)
+  useEffect(() => {
+    fetch(`${API_URL}/gruposdescuento/`).then(r => r.ok ? r.json() : []).then(d => setGrupos(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []);
+
+  const seleccionar = (e) => {
+    setSel(e); setModo("ver"); setCargandoDet(true);
+    fetch(`${API_URL}/descuentos/${e.id}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { setDetalle(data ? data.detalle : []); })
+      .catch(() => setDetalle([]))
+      .finally(() => setCargandoDet(false));
+  };
+
+  const nuevaEstrategia = () => {
+    setSel(null); setModo("nuevo"); setEditNombre(""); setEditDesc(""); setEditDetalle([]);
+  };
+
+  const editarEstrategia = () => {
+    if (!sel) return;
+    setModo("editar"); setEditNombre(sel.nombre || ""); setEditDesc(sel.descripcion || "");
+    setEditDetalle(detalle.map(d => ({ idgrupodescuento: d.idgrupodescuento, grupodescuento: d.grupodescuento, descripciongrupo: d.descripciongrupo, descuento: d.descuento })));
+  };
+
+  const addLineaEdit = () => setEditDetalle(d => [...d, { idgrupodescuento: null, grupodescuento: "", descripciongrupo: "", descuento: 0 }]);
+  const setLineaGrupo = (i, idg) => setEditDetalle(d => {
+    const g = grupos.find(x => x.id === Number(idg));
+    const next = [...d];
+    next[i] = { ...next[i], idgrupodescuento: Number(idg), grupodescuento: g ? g.grupodescuentospain : "", descripciongrupo: g ? g.descripcion : "" };
+    return next;
+  });
+  const setLineaDto = (i, val) => setEditDetalle(d => { const next = [...d]; next[i] = { ...next[i], descuento: val }; return next; });
+  const delLineaEdit = (i) => setEditDetalle(d => d.filter((_, idx) => idx !== i));
+
+  const guardar = async () => {
+    if (!editNombre.trim()) { setStatus && setStatus("La estrategia necesita un nombre", "error"); return; }
+    const payload = {
+      nombre: editNombre.trim(),
+      descripcion: editDesc.trim() || null,
+      detalle: editDetalle.filter(l => l.idgrupodescuento).map(l => ({
+        idgrupodescuento: l.idgrupodescuento,
+        descuento: Number(String(l.descuento).replace(",", ".")) || 0,
+      })),
+    };
+    try {
+      const url = modo === "nuevo" ? `${API_URL}/descuentos/` : `${API_URL}/descuentos/${sel.id}`;
+      const method = modo === "nuevo" ? "POST" : "PUT";
+      const r = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      setStatus && setStatus(modo === "nuevo" ? "Estrategia creada" : "Estrategia actualizada", "success");
+      setModo("ver"); cargarLista();
+      // Recargar el detalle si era edición
+      if (modo === "editar" && sel) seleccionar(sel);
+    } catch (e) {
+      setStatus && setStatus("Error al guardar la estrategia: " + e.message, "error");
+    }
+  };
+
+  const borrar = async () => {
+    if (!sel) return;
+    try {
+      const r = await fetch(`${API_URL}/descuentos/${sel.id}`, { method: "DELETE" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      setStatus && setStatus("Estrategia borrada", "success");
+      setSel(null); setDetalle([]); setConfirmBorrar(false); cargarLista();
+    } catch (e) {
+      setStatus && setStatus("Error al borrar: " + e.message, "error");
+    }
+  };
+
+  const aplicar = () => {
+    if (!detalle || detalle.length === 0) { setStatus && setStatus("La estrategia no tiene descuentos", "error"); return; }
+    onAplicar(detalle);
+    onClose();
+  };
+
+  const lineasMostrar = modo === "ver" ? detalle : editDetalle;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "92%", maxWidth: 980, height: "86vh", maxHeight: "94vh", minWidth: 560, minHeight: 400, display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", resize: "both", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <h2 style={{ fontSize: 17, fontWeight: 700, color: "#171717", margin: 0, display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <Icon as={Percent} size={20} color="#2563eb" /> Estrategias de Descuento
+          </h2>
+          <button onClick={onClose} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#64748b" }}><Icon as={X} size={20} /></button>
+        </div>
+
+        <div style={{ display: "flex", gap: 14, flex: "1 1 auto", minHeight: 200 }}>
+          {/* Lista de estrategias */}
+          <div style={{ width: 280, display: "flex", flexDirection: "column", border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ padding: "6px 10px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: 12, fontWeight: 600, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span>Estrategias {cargando ? "(...)" : `(${estrategias.length})`}</span>
+              <button onClick={nuevaEstrategia} title="Nueva estrategia" style={{ border: "none", background: "#2563eb", color: "#fff", borderRadius: 4, cursor: "pointer", padding: "2px 8px", fontSize: 11 }}>+ Nueva</button>
+            </div>
+            <div style={{ flex: 1, overflow: "auto" }}>
+              {estrategias.map(e => (
+                <div key={e.id} onClick={() => seleccionar(e)}
+                  style={{ padding: "7px 10px", cursor: "pointer", fontSize: 12, borderBottom: "1px solid #f1f5f9", background: sel?.id === e.id ? "#dbeafe" : "transparent" }}>
+                  <div style={{ fontWeight: 600, color: "#171717" }}>{e.nombre}</div>
+                  {e.descripcion && <div style={{ color: "#64748b", fontSize: 11 }}>{e.descripcion}</div>}
+                </div>
+              ))}
+              {!cargando && estrategias.length === 0 && <div style={{ padding: 16, color: "#94a3b8", fontSize: 12, textAlign: "center" }}>No hay estrategias</div>}
+            </div>
+          </div>
+
+          {/* Detalle / editor */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+            {(modo === "editar" || modo === "nuevo") ? (
+              <div style={{ padding: "10px 12px", borderBottom: "1px solid #e2e8f0", display: "flex", gap: 8 }}>
+                <input value={editNombre} onChange={e => setEditNombre(e.target.value)} placeholder="Nombre de la estrategia"
+                  style={{ flex: 1, padding: "5px 8px", border: "1px solid #d4d4d4", borderRadius: 4, fontSize: 12 }} />
+                <input value={editDesc} onChange={e => setEditDesc(e.target.value)} placeholder="Descripción"
+                  style={{ flex: 1, padding: "5px 8px", border: "1px solid #d4d4d4", borderRadius: 4, fontSize: 12 }} />
+              </div>
+            ) : (
+              <div style={{ padding: "8px 12px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: 12, fontWeight: 600 }}>
+                {sel ? `Descuentos de "${sel.nombre}"` : "Selecciona una estrategia"}
+              </div>
+            )}
+
+            <div style={{ flex: 1, overflow: "auto" }}>
+              {cargandoDet && <div style={{ padding: 16, color: "#94a3b8", fontSize: 12, textAlign: "center" }}>Cargando...</div>}
+              {!cargandoDet && modo === "ver" && !sel && <div style={{ padding: 16, color: "#94a3b8", fontSize: 12, textAlign: "center" }}>Selecciona una estrategia para ver sus descuentos</div>}
+              {!cargandoDet && (
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead style={{ position: "sticky", top: 0, background: "#fafafa" }}>
+                    <tr>
+                      <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "1px solid #e5e5e5" }}>Grupo Dto.</th>
+                      <th style={{ padding: "6px 8px", textAlign: "left", borderBottom: "1px solid #e5e5e5" }}>Descripción</th>
+                      <th style={{ padding: "6px 8px", textAlign: "right", borderBottom: "1px solid #e5e5e5", width: 90 }}>Descuento</th>
+                      {(modo === "editar" || modo === "nuevo") && <th style={{ width: 36, borderBottom: "1px solid #e5e5e5" }}></th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lineasMostrar.map((d, i) => (
+                      <tr key={i} style={{ borderBottom: "1px solid #f1f5f9" }}>
+                        <td style={{ padding: "5px 8px" }}>
+                          {(modo === "editar" || modo === "nuevo") ? (
+                            <select value={d.idgrupodescuento || ""} onChange={e => setLineaGrupo(i, e.target.value)}
+                              style={{ width: "100%", padding: "3px", fontSize: 11, border: "1px solid #d4d4d4", borderRadius: 4 }}>
+                              <option value="">— grupo —</option>
+                              {grupos.map(g => <option key={g.id} value={g.id}>{g.grupodescuentospain}</option>)}
+                            </select>
+                          ) : <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#1e3a5f" }}>{d.grupodescuento || d.idgrupodescuento}</span>}
+                        </td>
+                        <td style={{ padding: "5px 8px", color: "#475569" }}>{d.descripciongrupo || ""}</td>
+                        <td style={{ padding: "5px 8px", textAlign: "right" }}>
+                          {(modo === "editar" || modo === "nuevo") ? (
+                            <input value={d.descuento ?? ""} onChange={e => setLineaDto(i, e.target.value)}
+                              style={{ width: 60, padding: "3px", fontSize: 11, textAlign: "right", border: "1px solid #d4d4d4", borderRadius: 4 }} />
+                          ) : <span style={{ fontWeight: 600, color: "#0369a1" }}>{fmt(Number(d.descuento) || 0)} %</span>}
+                        </td>
+                        {(modo === "editar" || modo === "nuevo") && (
+                          <td style={{ textAlign: "center" }}>
+                            <button onClick={() => delLineaEdit(i)} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#dc2626" }}><Icon as={Trash2} size={14} /></button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              {(modo === "editar" || modo === "nuevo") && (
+                <button onClick={addLineaEdit} style={{ margin: 10, padding: "5px 12px", fontSize: 12, border: "1px dashed #94a3b8", borderRadius: 6, background: "#f8fafc", color: "#475569", cursor: "pointer" }}>+ Añadir grupo descuento</button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Botonera */}
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 14, flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            {modo === "ver" && sel && (
+              <>
+                <button onClick={editarEstrategia} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13 }}>Editar</button>
+                <button onClick={() => setConfirmBorrar(true)} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #fca5a5", background: "#fff", color: "#b91c1c", cursor: "pointer", fontSize: 13 }}>Borrar</button>
+              </>
+            )}
+            {(modo === "editar" || modo === "nuevo") && (
+              <>
+                <button onClick={guardar} style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: "#16a34a", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Guardar</button>
+                <button onClick={() => { setModo("ver"); if (sel) seleccionar(sel); }} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13 }}>Cancelar</button>
+              </>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13 }}>Cerrar</button>
+            {modo === "ver" && sel && (
+              <button onClick={aplicar} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#2563eb", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Aplicar al presupuesto</button>
+            )}
+          </div>
+        </div>
+
+        {confirmBorrar && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100001 }} onClick={() => setConfirmBorrar(false)}>
+            <div style={{ background: "#fff", borderRadius: 10, padding: "1.5rem", maxWidth: 380, textAlign: "center" }} onClick={e => e.stopPropagation()}>
+              <p style={{ fontSize: 14, color: "#171717", marginBottom: 16 }}>¿Borrar la estrategia "{sel?.nombre}"?</p>
+              <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
+                <button onClick={() => setConfirmBorrar(false)} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontSize: 13 }}>Cancelar</button>
+                <button onClick={borrar} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#dc2626", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Borrar</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -9375,6 +9616,7 @@ function AppInner() {
   const [estructuraActiva, setEstructuraActiva] = useState(false);
   const [showImportar, setShowImportar] = useState(false);
   const [showDescuentos, setShowDescuentos] = useState(false);
+  const [showEstrategias, setShowEstrategias] = useState(false);
   const [showLeer, setShowLeer] = useState(false);
   const [showClientes, setShowClientes] = useState(false);
   const [showContactos, setShowContactos] = useState(false);
@@ -9724,6 +9966,7 @@ function AppInner() {
     }
     if (action === "Importar") { setShowImportar(true); setStatus("Abriendo diálogo de importación", "info"); return; }
     if (action === "AplicarDescuentos") { setShowDescuentos(true); setStatus("Abriendo gestor de descuentos por grupo descuento", "info"); return; }
+    if (action === "GestionarEstrategias") { setShowEstrategias(true); return; }
     if (action === "LeerPresupuestos") { setShowLeer(true); setStatus("Cargando lista de presupuestos desde la base de datos...", "working"); return; }
     if (action === "GestionarClientes") { setShowClientes(true); setStatus("Cargando lista de clientes desde la base de datos...", "working"); return; }
     if (action === "GestionarContactos") { setShowContactos(true); setStatus("Cargando lista de contactos desde la base de datos...", "working"); return; }
@@ -10690,7 +10933,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.99.1 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.00.0 (9 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -10983,7 +11226,7 @@ function AppInner() {
               { id: "m-otros", titulo: "Menú Otros", color: "#171717", items: [
                 { op: "Ayuda",                    desc: "Muestra este manual." },
                 { op: "Opciones",                 desc: "Pantalla con menú lateral: (1) Configurar Estilos: personaliza color, fuente, tamaño y peso de cada naturaleza, incluidos PD (producto normal) y CONF (Confirmar por el cliente), con Exportar/Importar JSON. (2) Actualizar Tarifas: carga un Excel para crear/actualizar productos, con selector Sobrescribir SÍ/NO y log. (3) Mantenimiento BD: tablas de Clientes y Contactos (importar Excel, los contactos incluyen Teléfono 1 y 2), Log, recálculo de masusado, exportaciones y comprobación de integridad de datos. (4) Gestión de Usuarios: crear, editar y borrar usuarios con permisos y contraseña. (5) Configuraciones Varias." },
-                { op: "Gestionar Descuentos",     desc: "Gestor de los grupos de descuento del catálogo." },
+                { op: "Gestionar Estrategias Descuento", desc: "Consulta, crea, edita, borra y aplica estrategias de descuento (conjuntos de grupo descuento + % guardados) sobre el presupuesto." },
                 { op: "Gestionar BD Competencia", desc: "Gestor de los productos de la competencia y sus equivalencias." },
               ]},
                         ].map(menu => (
@@ -11094,7 +11337,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.99.1 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.00.0 (9 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
@@ -12594,6 +12837,31 @@ function AppInner() {
             setSelectionRange(null);
             setSelectedCell(null);
             nextId.current = nextBlankId;
+          }}
+        />
+      )}
+      {showEstrategias && (
+        <EstrategiasDescuentoDialog
+          setStatus={setStatus}
+          onClose={() => setShowEstrategias(false)}
+          onAplicar={(detalleEstrategia) => {
+            // Mapa código de grupo (mayúsculas) → descuento
+            const mapa = {};
+            detalleEstrategia.forEach(d => {
+              const cod = String(d.grupodescuento || "").trim().toUpperCase();
+              if (cod) mapa[cod] = Number(d.descuento) || 0;
+            });
+            let aplicadas = 0;
+            setRows(r => r.map(row => {
+              if (!["PD", "PE", "E"].includes(row.naturaleza)) return row;
+              const gd = String(row.grupodescuento || "").trim().toUpperCase();
+              if (gd && mapa[gd] !== undefined) {
+                aplicadas++;
+                return { ...row, dtoaplicado: mapa[gd] };
+              }
+              return row;
+            }));
+            setStatus(`Estrategia aplicada: ${aplicadas} línea(s) actualizada(s)`, aplicadas > 0 ? "success" : "info");
           }}
         />
       )}
