@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.04.0 (9 Junio 2026)
+// Versión: v2.05.0 (9 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.05.0 (9 Junio 2026) - Todos los diálogos se pueden mover arrastrando su zona superior (hook global useDialogDrag, sin tocar cada diálogo)
 //   v2.04.0 (9 Junio 2026) - Nueva función Otros → Gestionar BD Competencia: gestor de equivalencias (buscar refs competencia y Siemens, seleccionar 1-a-N, crear equivalencias con comentario/tipo y confirmación de sobrescritura)
 //   v2.03.1 (9 Junio 2026) - Equivalencia Competencia: botón "Procesar fila siguiente" que avanza a la siguiente fila del grid con referencia y busca su equivalencia sin cerrar el diálogo
 //   v2.03.0 (9 Junio 2026) - Mantenimiento BD: nuevo apartado para importar/actualizar productoscompetencia desde Excel (referencia obligatoria; fabricante por id o nombre; toggle existente SÍ/NO)
@@ -9874,7 +9875,82 @@ class ErrorBoundary extends Component {
   }
 }
 
+// Hook global: hace que todos los diálogos se puedan mover arrastrando su zona superior
+// (como ventanas). Funciona por delegación de eventos, sin tocar cada diálogo.
+function useDialogDrag() {
+  useEffect(() => {
+    let dragging = null; // { panel, startX, startY, baseX, baseY }
+
+    // Localiza el panel de diálogo a partir del elemento pulsado.
+    // Un panel es un hijo directo de un overlay "position:fixed; inset:0" con sombra.
+    const encontrarPanel = (target) => {
+      let el = target;
+      while (el && el !== document.body) {
+        const st = el.style;
+        if (st && st.boxShadow && st.borderRadius && el.parentElement) {
+          const pe = el.parentElement.style;
+          if (pe && pe.position === "fixed") return el;
+        }
+        el = el.parentElement;
+      }
+      return null;
+    };
+
+    const esControl = (el) => {
+      let n = el;
+      while (n && n !== document.body) {
+        const tag = n.tagName;
+        if (["INPUT", "TEXTAREA", "SELECT", "BUTTON", "A", "OPTION", "LABEL"].includes(tag)) return true;
+        if (n.getAttribute && n.getAttribute("contenteditable") === "true") return true;
+        n = n.parentElement;
+      }
+      return false;
+    };
+
+    const onMouseDown = (e) => {
+      if (e.button !== 0) return;
+      const panel = encontrarPanel(e.target);
+      if (!panel) return;
+      // Solo permitir arrastre desde la zona superior (cabecera): primeros 56 px del panel
+      const rect = panel.getBoundingClientRect();
+      if (e.clientY - rect.top > 56) return;
+      // No arrastrar si se pulsa sobre un control interactivo (botón cerrar, inputs, etc.)
+      if (esControl(e.target)) return;
+
+      // Leer desplazamiento actual del transform (si ya se movió antes)
+      let baseX = 0, baseY = 0;
+      const m = /translate\(\s*(-?[\d.]+)px\s*,\s*(-?[\d.]+)px\s*\)/.exec(panel.style.transform || "");
+      if (m) { baseX = parseFloat(m[1]); baseY = parseFloat(m[2]); }
+
+      dragging = { panel, startX: e.clientX, startY: e.clientY, baseX, baseY };
+      panel.style.cursor = "grabbing";
+      e.preventDefault();
+    };
+
+    const onMouseMove = (e) => {
+      if (!dragging) return;
+      const dx = dragging.baseX + (e.clientX - dragging.startX);
+      const dy = dragging.baseY + (e.clientY - dragging.startY);
+      dragging.panel.style.transform = `translate(${dx}px, ${dy}px)`;
+    };
+
+    const onMouseUp = () => {
+      if (dragging) { dragging.panel.style.cursor = ""; dragging = null; }
+    };
+
+    document.addEventListener("mousedown", onMouseDown, true);
+    document.addEventListener("mousemove", onMouseMove, true);
+    document.addEventListener("mouseup", onMouseUp, true);
+    return () => {
+      document.removeEventListener("mousedown", onMouseDown, true);
+      document.removeEventListener("mousemove", onMouseMove, true);
+      document.removeEventListener("mouseup", onMouseUp, true);
+    };
+  }, []);
+}
+
 function AppInner() {
+  useDialogDrag();
   // Reset global de html/body para que no aparezca scroll de la página completa
   useEffect(() => {
     const styleEl = document.createElement("style");
@@ -11551,7 +11627,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.04.0 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.05.0 (9 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -11955,7 +12031,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.04.0 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.05.0 (9 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
