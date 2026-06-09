@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.03.1 (9 Junio 2026)
+// Versión: v2.04.0 (9 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.04.0 (9 Junio 2026) - Nueva función Otros → Gestionar BD Competencia: gestor de equivalencias (buscar refs competencia y Siemens, seleccionar 1-a-N, crear equivalencias con comentario/tipo y confirmación de sobrescritura)
 //   v2.03.1 (9 Junio 2026) - Equivalencia Competencia: botón "Procesar fila siguiente" que avanza a la siguiente fila del grid con referencia y busca su equivalencia sin cerrar el diálogo
 //   v2.03.0 (9 Junio 2026) - Mantenimiento BD: nuevo apartado para importar/actualizar productoscompetencia desde Excel (referencia obligatoria; fabricante por id o nombre; toggle existente SÍ/NO)
 //   v2.02.2 (9 Junio 2026) - Equivalencia Competencia: el diálogo ya no se cierra tras Sustituir o Crear nueva fila
@@ -9630,6 +9631,212 @@ function EquivalenciaCompetenciaDialog({ datos, onClose, onSustituir, onCrearFil
   );
 }
 
+// ── Diálogo Gestionar equivalencias (Competencia ↔ Siemens) ──
+// Busca referencias de competencia y de Siemens, permite seleccionar varias de un lado
+// (relación 1-a-N) y crear las equivalencias, con comentario y confirmación si ya existen.
+function GestorEquivalenciasDialog({ onClose, setStatus }) {
+  const [qComp, setQComp] = useState("");
+  const [qSiem, setQSiem] = useState("");
+  const [resComp, setResComp] = useState([]);
+  const [resSiem, setResSiem] = useState([]);
+  const [buscandoComp, setBuscandoComp] = useState(false);
+  const [buscandoSiem, setBuscandoSiem] = useState(false);
+  const [selComp, setSelComp] = useState({}); // id -> producto competencia
+  const [selSiem, setSelSiem] = useState({}); // id -> producto siemens
+  const [comentario, setComentario] = useState("");
+  const [tipo, setTipo] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [confirmConflictos, setConfirmConflictos] = useState(null); // { conflictos } | null
+  const seqC = useRef(0); const seqS = useRef(0);
+
+  // Búsqueda competencia (debounce)
+  useEffect(() => {
+    const q = qComp.trim();
+    if (q.length < 1) { setResComp([]); return; }
+    setBuscandoComp(true);
+    const seq = ++seqC.current;
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`${API_URL}/competencia/buscar-competencia?q=${encodeURIComponent(q)}`);
+        const data = r.ok ? await r.json() : [];
+        if (seq === seqC.current) setResComp(Array.isArray(data) ? data : []);
+      } catch { if (seq === seqC.current) setResComp([]); }
+      finally { if (seq === seqC.current) setBuscandoComp(false); }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [qComp]);
+
+  // Búsqueda Siemens (debounce)
+  useEffect(() => {
+    const q = qSiem.trim();
+    if (q.length < 1) { setResSiem([]); return; }
+    setBuscandoSiem(true);
+    const seq = ++seqS.current;
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`${API_URL}/competencia/buscar-siemens?q=${encodeURIComponent(q)}`);
+        const data = r.ok ? await r.json() : [];
+        if (seq === seqS.current) setResSiem(Array.isArray(data) ? data : []);
+      } catch { if (seq === seqS.current) setResSiem([]); }
+      finally { if (seq === seqS.current) setBuscandoSiem(false); }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [qSiem]);
+
+  const toggle = (setSel, item) => setSel(prev => {
+    const next = { ...prev };
+    if (next[item.id]) delete next[item.id]; else next[item.id] = item;
+    return next;
+  });
+
+  const nComp = Object.keys(selComp).length;
+  const nSiem = Object.keys(selSiem).length;
+  const muchosAmbos = nComp > 1 && nSiem > 1;
+
+  const crear = async (sobreescribir = false) => {
+    if (nComp === 0 || nSiem === 0) { setStatus && setStatus("Selecciona al menos una referencia de cada lado", "error"); return; }
+    if (muchosAmbos) { setStatus && setStatus("Solo uno de los dos lados puede tener varias referencias", "error"); return; }
+    setGuardando(true);
+    try {
+      const body = {
+        idscompetencia: Object.keys(selComp).map(Number),
+        idssiemens: Object.keys(selSiem).map(Number),
+        comentario: comentario.trim() || null,
+        tipo: tipo.trim() || null,
+        sobreescribir,
+      };
+      const r = await fetch(`${API_URL}/competencia/equivalencias/crear`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
+      const data = await r.json();
+      if (data.necesita_confirmacion) {
+        setConfirmConflictos({ conflictos: data.conflictos });
+        setGuardando(false);
+        return;
+      }
+      setConfirmConflictos(null);
+      setStatus && setStatus(`Equivalencias: ${data.creadas} creada(s), ${data.actualizadas} actualizada(s)`, "success");
+      // Limpiar selección
+      setSelComp({}); setSelSiem({}); setComentario(""); setTipo("");
+    } catch (e) {
+      setStatus && setStatus("Error al crear equivalencias: " + e.message, "error");
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const ListaResultados = ({ titulo, buscando, resultados, sel, setSel, render }) => (
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+      <div style={{ fontSize: 11, color: "#525252", fontWeight: 600, marginBottom: 4 }}>
+        {titulo} {buscando ? "(buscando...)" : resultados.length > 0 ? `(${resultados.length})` : ""}
+      </div>
+      <div style={{ flex: 1, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 6, minHeight: 120 }}>
+        {resultados.length === 0 && <div style={{ padding: 12, color: "#94a3b8", fontSize: 12, textAlign: "center" }}>Escribe para buscar</div>}
+        {resultados.map(p => (
+          <div key={p.id} onClick={() => toggle(setSel, p)}
+            style={{ padding: "6px 10px", cursor: "pointer", fontSize: 12, borderBottom: "1px solid #f1f5f9", background: sel[p.id] ? "#dcfce7" : "transparent" }}>
+            {render(p, !!sel[p.id])}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "94%", maxWidth: 1000, height: "88vh", maxHeight: "94vh", minWidth: 600, minHeight: 420, display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", resize: "both", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <h2 style={{ fontSize: 17, fontWeight: 700, color: "#171717", margin: 0, display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <Icon as={Database} size={20} color="#2563eb" /> Gestionar Equivalencias Competencia ↔ Siemens
+          </h2>
+          <button onClick={onClose} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#64748b" }}><Icon as={X} size={20} /></button>
+        </div>
+
+        <div style={{ display: "flex", gap: 16, flex: "1 1 auto", minHeight: 0 }}>
+          {/* Columna competencia */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: "#ea580c", marginBottom: 4 }}>Referencia de competencia</label>
+            <input value={qComp} onChange={e => setQComp(e.target.value)} placeholder="Buscar en productos de competencia..."
+              style={{ width: "100%", padding: "6px 8px", border: "1px solid #d4d4d4", borderRadius: 4, fontSize: 12, boxSizing: "border-box", marginBottom: 8 }} />
+            <ListaResultados titulo="Coincidencias" buscando={buscandoComp} resultados={resComp} sel={selComp} setSel={setSelComp}
+              render={(p, marcada) => (
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <span style={{ fontFamily: "monospace", fontWeight: 600, color: marcada ? "#166534" : "#1e3a5f" }}>{p.referencia}</span>
+                  <span style={{ color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, textAlign: "right" }}>{p.fabricante || p.descripcion || ""}</span>
+                </div>
+              )} />
+            <div style={{ fontSize: 11, color: "#475569", marginTop: 6 }}>Seleccionadas: <strong>{nComp}</strong></div>
+          </div>
+
+          {/* Columna Siemens */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 0 }}>
+            <label style={{ fontSize: 12, fontWeight: 700, color: "#0891b2", marginBottom: 4 }}>Referencia Siemens (productos)</label>
+            <input value={qSiem} onChange={e => setQSiem(e.target.value)} placeholder="Buscar en productos Siemens..."
+              style={{ width: "100%", padding: "6px 8px", border: "1px solid #d4d4d4", borderRadius: 4, fontSize: 12, boxSizing: "border-box", marginBottom: 8 }} />
+            <ListaResultados titulo="Coincidencias" buscando={buscandoSiem} resultados={resSiem} sel={selSiem} setSel={setSelSiem}
+              render={(p, marcada) => (
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                  <span style={{ fontFamily: "monospace", fontWeight: 600, color: marcada ? "#166534" : "#1e3a5f" }}>{p.referencia}</span>
+                  <span style={{ color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, textAlign: "right" }}>{p.nombre || ""}</span>
+                </div>
+              )} />
+            <div style={{ fontSize: 11, color: "#475569", marginTop: 6 }}>Seleccionadas: <strong>{nSiem}</strong></div>
+          </div>
+        </div>
+
+        {/* Comentario, tipo y botón */}
+        <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 12, marginTop: 12, flexShrink: 0 }}>
+          {muchosAmbos && (
+            <div style={{ fontSize: 12, color: "#b91c1c", marginBottom: 8 }}>
+              Solo uno de los dos lados puede tener varias referencias (1 competencia ↔ N Siemens, o N competencia ↔ 1 Siemens).
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+            <div style={{ flex: 2 }}>
+              <label style={{ fontSize: 11, color: "#525252", fontWeight: 500, display: "block", marginBottom: 3 }}>Comentario</label>
+              <input value={comentario} onChange={e => setComentario(e.target.value)} placeholder="Comentario (opcional)"
+                style={{ width: "100%", padding: "6px 8px", border: "1px solid #d4d4d4", borderRadius: 4, fontSize: 12, boxSizing: "border-box" }} />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label style={{ fontSize: 11, color: "#525252", fontWeight: 500, display: "block", marginBottom: 3 }}>Tipo</label>
+              <input value={tipo} onChange={e => setTipo(e.target.value)} placeholder="Tipo (opcional)"
+                style={{ width: "100%", padding: "6px 8px", border: "1px solid #d4d4d4", borderRadius: 4, fontSize: 12, boxSizing: "border-box" }} />
+            </div>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Icon as={X} size={14} color="#475569" /> Cerrar
+            </button>
+            <button onClick={() => crear(false)} disabled={guardando || nComp === 0 || nSiem === 0 || muchosAmbos}
+              style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: (guardando || nComp === 0 || nSiem === 0 || muchosAmbos) ? "#cbd5e1" : "#16a34a", color: "#fff", cursor: (guardando || nComp === 0 || nSiem === 0 || muchosAmbos) ? "default" : "pointer", fontSize: 13, fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              <Icon as={Plus} size={14} color="#fff" /> {guardando ? "Guardando..." : "Crear equivalencia"}
+            </button>
+          </div>
+        </div>
+
+        {/* Confirmación de sobrescritura */}
+        {confirmConflictos && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100001 }} onClick={() => setConfirmConflictos(null)}>
+            <div style={{ background: "#fff", borderRadius: 10, padding: "1.5rem", maxWidth: 420, textAlign: "center" }} onClick={e => e.stopPropagation()}>
+              <p style={{ fontSize: 14, color: "#171717", marginBottom: 8 }}>
+                Ya existen <strong>{confirmConflictos.conflictos.length}</strong> equivalencia(s) para esas referencias.
+              </p>
+              <p style={{ fontSize: 12, color: "#64748b", marginBottom: 16 }}>¿Sobrescribir las existentes y crear las nuevas?</p>
+              <div style={{ display: "flex", justifyContent: "center", gap: 8 }}>
+                <button onClick={() => setConfirmConflictos(null)} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", cursor: "pointer", fontSize: 13 }}>Cancelar</button>
+                <button onClick={() => crear(true)} style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: "#16a34a", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600 }}>Sobrescribir</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+      </div>
+    </div>
+  );
+}
+
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -10028,6 +10235,7 @@ function AppInner() {
   const [showLeerProducto, setShowLeerProducto] = useState(false);
   const [showAsistente, setShowAsistente] = useState(false);
   const [equivalenciaDialog, setEquivalenciaDialog] = useState(null); // { referencia, rowId, colKey } | null
+  const [showGestorCompetencia, setShowGestorCompetencia] = useState(false);
   const [actualizarProductos, setActualizarProductos] = useState(null); // { existentes: [{fila, productoBD}], gruposCache } | null
   const [confirmBorrarPresup, setConfirmBorrarPresup] = useState(false);
   const [comprobarDialog, setComprobarDialog] = useState(null); // { tipo: "iguales" | "diferentes" | "no_existe", diffs: [], comparado: presupuestoBD }
@@ -10897,6 +11105,7 @@ function AppInner() {
       }
       return;
     }
+    if (action === "GestionarProductosCompetencia") { setShowGestorCompetencia(true); return; }
     if (action === "BuscarEquivalencia") {
       // Toma la referencia de la celda seleccionada y abre el diálogo de equivalencias
       if (!selectedCell) {
@@ -11342,7 +11551,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.03.1 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.04.0 (9 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -11746,7 +11955,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.03.1 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.04.0 (9 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
@@ -12534,6 +12743,12 @@ function AppInner() {
           />
         );
       })()}
+      {showGestorCompetencia && (
+        <GestorEquivalenciasDialog
+          setStatus={setStatus}
+          onClose={() => setShowGestorCompetencia(false)}
+        />
+      )}
       {equivalenciaDialog && (
         <EquivalenciaCompetenciaDialog
           datos={equivalenciaDialog}
