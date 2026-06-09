@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.02.2 (9 Junio 2026)
+// Versión: v2.03.0 (9 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.03.0 (9 Junio 2026) - Mantenimiento BD: nuevo apartado para importar/actualizar productoscompetencia desde Excel (referencia obligatoria; fabricante por id o nombre; toggle existente SÍ/NO)
 //   v2.02.2 (9 Junio 2026) - Equivalencia Competencia: el diálogo ya no se cierra tras Sustituir o Crear nueva fila
 //   v2.02.1 (9 Junio 2026) - Equivalencia Competencia: botón "Crear nueva fila" junto a Sustituir, que inserta una nueva fila con la referencia Siemens debajo de la actual
 //   v2.02.0 (9 Junio 2026) - Nueva función Buscar equivalencia Competencia: busca la referencia en productoscompetencia, muestra sus equivalencias Siemens (tipo/comentario) y permite sustituir la referencia de la celda
@@ -2736,6 +2737,92 @@ function MantenimientoSection({ setStatus }) {
               const nuevo = await r.json();
               if (nuevo && nuevo.id) ctx.detalle.push({ ...body, id: nuevo.id });
               addLog(`Fila ${nFila}: estrategia ${iddescuento} / grupo ${idgrupodescuento} → CREADO (${descuento}%)`, "success");
+              return "nuevo";
+            }
+          },
+        }}
+      />
+
+      <ImportTablaSection
+        setStatus={setStatus}
+        config={{
+          titulo: "Productos de competencia",
+          descripcion: "Importa o actualiza productos de competencia desde un Excel. Columna obligatoria: 'referencia'. Opcionales: 'descripcion', 'precioneto', 'pvp' y el fabricante (por 'idfabricante' o por nombre 'fabricante', que se resuelve a su id). Un producto ya existe cuando coincide la referencia.",
+          icono: Package,
+          color: "#ea580c",
+          columnas: [
+            { claves: ["referencia", "ref", "referencia competencia"], destino: "referencia", label: "Referencia", obligatoria: true },
+            { claves: ["descripcion", "descripción", "desc"], destino: "descripcion", label: "Descripción", obligatoria: false },
+            { claves: ["idfabricante", "id fabricante"], destino: "idfabricante", label: "ID Fabricante", obligatoria: false },
+            { claves: ["fabricante", "marca"], destino: "fabricante", label: "Fabricante", obligatoria: false },
+            { claves: ["precioneto", "precio neto", "neto"], destino: "precioneto", label: "Precio neto", obligatoria: false },
+            { claves: ["pvp", "precio"], destino: "pvp", label: "PVP", obligatoria: false },
+          ],
+          cargarContexto: async () => {
+            const ctx = { productos: [], fabricantes: [] };
+            try {
+              const r = await fetch(`${API_URL}/competencia/productos`);
+              if (r.ok) ctx.productos = await r.json();
+            } catch {}
+            try {
+              const rf = await fetch(`${API_URL}/competencia/fabricantes`);
+              if (rf.ok) ctx.fabricantes = await rf.json();
+            } catch {}
+            return ctx;
+          },
+          procesarFila: async (datos, ctx, sobreescribir, addLog, nFila) => {
+            const referencia = String(datos.referencia || "").trim();
+            if (!referencia) {
+              addLog(`Fila ${nFila}: falta la referencia, se omite`, "error");
+              return "error";
+            }
+            // Resolver fabricante: por id directo o por nombre
+            let idfabricante = null;
+            if (datos.idfabricante !== undefined && String(datos.idfabricante).trim() !== "") {
+              const n = parseInt(String(datos.idfabricante).replace(/\D/g, ""), 10);
+              if (!isNaN(n)) idfabricante = n;
+            } else if (datos.fabricante !== undefined && String(datos.fabricante).trim() !== "") {
+              const nom = String(datos.fabricante).trim().toUpperCase();
+              const f = (ctx.fabricantes || []).find(x => String(x.fabricante || "").trim().toUpperCase() === nom);
+              if (f) idfabricante = Number(f.id);
+              else addLog(`Fila ${nFila}: fabricante "${datos.fabricante}" no encontrado, se deja sin fabricante`, "warning");
+            }
+            // Números: admiten coma o punto decimal
+            const parseNum = (v) => {
+              if (v === undefined || String(v).trim() === "") return null;
+              const n = parseFloat(String(v).replace(/\s/g, "").replace(",", "."));
+              return isNaN(n) ? null : n;
+            };
+            const body = {
+              referencia,
+              descripcion: datos.descripcion || null,
+              idfabricante,
+              precioneto: parseNum(datos.precioneto),
+              pvp: parseNum(datos.pvp),
+            };
+            // Buscar existente por referencia (case-insensitive)
+            const existente = (ctx.productos || []).find(p =>
+              String(p.referencia || "").trim().toUpperCase() === referencia.toUpperCase()
+            );
+            if (existente) {
+              if (!sobreescribir) {
+                addLog(`Fila ${nFila}: "${referencia}" → ya existe, se omite (actualizar = NO)`, "info");
+                return "omitido";
+              }
+              const r = await fetch(`${API_URL}/competencia/productos/${existente.id}`, {
+                method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+              });
+              if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
+              addLog(`Fila ${nFila}: "${referencia}" → ACTUALIZADO`, "success");
+              return "actualizado";
+            } else {
+              const r = await fetch(`${API_URL}/competencia/productos`, {
+                method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+              });
+              if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
+              const nuevo = await r.json();
+              if (nuevo && nuevo.id) ctx.productos.push({ ...body, id: nuevo.id });
+              addLog(`Fila ${nFila}: "${referencia}" → CREADO`, "success");
               return "nuevo";
             }
           },
@@ -11238,7 +11325,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.02.2 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.03.0 (9 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -11642,7 +11729,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.02.2 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.03.0 (9 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
