@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.98.2 (9 Junio 2026)
+// Versión: v1.99.0 (9 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.99.0 (9 Junio 2026) - Asistente Referencias: búsqueda automática en BD al montar la referencia; lista de productos cuya referencia empieza por la montada (como el autocompletado del grid); se elige uno e inserta
 //   v1.98.2 (9 Junio 2026) - Asistente Referencias: la opción SOBREESCRIBE desde la posición indicada (no inserta); referencia más grande en la lista de productos
 //   v1.98.1 (9 Junio 2026) - Asistente Referencias: posición -1 inserta la opción al final de la referencia (admite varias)
 //   v1.98.0 (9 Junio 2026) - Nueva funcionalidad Productos → Asistente Referencias: lista productos+opciones, monta la referencia insertando opciones por posición, consulta productos en BD e inserta en el presupuesto
@@ -8741,9 +8742,11 @@ function AsistenteReferenciasDialog({ onClose, onInsertar, setStatus }) {
   const [refFinal, setRefFinal] = useState("");        // referencia montada
 
   // Datos consultados de la tabla productos
-  const [datosBD, setDatosBD] = useState(null);        // { referencia, pvp, nombre, descripcion } | null
+  const [datosBD, setDatosBD] = useState(null);        // producto elegido de las coincidencias | null
   const [buscandoBD, setBuscandoBD] = useState(false);
   const [noEncontrado, setNoEncontrado] = useState(false);
+  const [coincidencias, setCoincidencias] = useState([]); // productos de BD cuya referencia empieza por refFinal
+  const buscarSeq = useRef(0);
 
   // Cargar productos del asistente al abrir
   useEffect(() => {
@@ -8810,24 +8813,40 @@ function AsistenteReferenciasDialog({ onClose, onInsertar, setStatus }) {
     setRefFinal(ref);
   }, [refBase, opcionesSel]);
 
-  // Consultar la tabla productos con la referencia final
-  const consultarProducto = () => {
-    const ref = (refFinal || "").trim();
-    if (!ref) { setStatus && setStatus("No hay referencia que consultar", "error"); return; }
-    setBuscandoBD(true);
+  // Búsqueda automática: cuando cambia la referencia montada, buscar productos cuya
+  // referencia empiece por ella (igual que el autocompletado de la celda del grid).
+  useEffect(() => {
+    const ref = String(refFinal || "").trim();
+    setDatosBD(null);
     setNoEncontrado(false);
-    fetch(`${API_URL}/productos/referencia/${encodeURIComponent(ref)}`)
-      .then(r => {
-        if (r.status === 404) { setNoEncontrado(true); setDatosBD(null); return null; }
-        return r.ok ? r.json() : null;
-      })
-      .then(data => { if (data) { setDatosBD(data); setNoEncontrado(false); } })
-      .catch(() => setStatus && setStatus("Error consultando el producto", "error"))
-      .finally(() => setBuscandoBD(false));
-  };
+    if (ref.length < 2) { setCoincidencias([]); return; }
+    setBuscandoBD(true);
+    const seq = ++buscarSeq.current;
+    const t = setTimeout(async () => {
+      try {
+        const url = API_URL + "/productos/?busqueda=" + encodeURIComponent(ref) + "&campo=referencia&limite=15";
+        const res = await fetch(url);
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const data = await res.json();
+        if (seq !== buscarSeq.current) return;
+        const refUp = ref.toUpperCase();
+        // Solo las que EMPIEZAN por la referencia montada, ordenadas
+        const empiezan = (Array.isArray(data) ? data : [])
+          .filter(p => String(p.referencia || "").toUpperCase().startsWith(refUp))
+          .sort((a, b) => String(a.referencia || "").localeCompare(String(b.referencia || "")));
+        setCoincidencias(empiezan);
+        setNoEncontrado(empiezan.length === 0);
+      } catch {
+        if (seq === buscarSeq.current) { setCoincidencias([]); }
+      } finally {
+        if (seq === buscarSeq.current) setBuscandoBD(false);
+      }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [refFinal]);
 
   const insertar = () => {
-    if (!datosBD) { setStatus && setStatus("Primero consulta el producto en la base de datos", "error"); return; }
+    if (!datosBD) { setStatus && setStatus("Selecciona un producto de la lista de coincidencias", "error"); return; }
     onInsertar(datosBD);
     setStatus && setStatus(`Producto ${datosBD.referencia} insertado`, "success");
     onClose();
@@ -8900,23 +8919,47 @@ function AsistenteReferenciasDialog({ onClose, onInsertar, setStatus }) {
 
         {/* Campos inferiores */}
         <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 12, flexShrink: 0 }}>
-          <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 10 }}>
-            <div style={{ flex: 2 }}>
-              <label style={{ fontSize: 11, color: "#525252", fontWeight: 500, display: "block", marginBottom: 3 }}>Referencia</label>
-              <input value={refFinal} onChange={e => { setRefFinal(e.target.value); setDatosBD(null); setNoEncontrado(false); }}
-                style={{ width: "100%", padding: "6px 8px", border: "1px solid #d4d4d4", borderRadius: 4, fontSize: 13, fontFamily: "monospace", fontWeight: 600, boxSizing: "border-box" }} />
-            </div>
-            <button onClick={consultarProducto} disabled={buscandoBD || !refFinal.trim()}
-              style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: (buscandoBD || !refFinal.trim()) ? "#cbd5e1" : "#2563eb", color: "#fff", cursor: (buscandoBD || !refFinal.trim()) ? "default" : "pointer", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>
-              {buscandoBD ? "Buscando..." : "Consultar en BD"}
-            </button>
+          <div style={{ marginBottom: 10 }}>
+            <label style={{ fontSize: 11, color: "#525252", fontWeight: 500, display: "block", marginBottom: 3 }}>
+              Referencia montada {buscandoBD ? "(buscando...)" : ""}
+            </label>
+            <input value={refFinal} onChange={e => { setRefBase(e.target.value); setOpcionesSel({}); }}
+              style={{ width: "100%", padding: "6px 8px", border: "1px solid #d4d4d4", borderRadius: 4, fontSize: 14, fontFamily: "monospace", fontWeight: 700, boxSizing: "border-box" }} />
           </div>
 
-          {noEncontrado && (
-            <div style={{ fontSize: 12, color: "#b91c1c", marginBottom: 8 }}>No se encontró ningún producto con la referencia "{refFinal}".</div>
-          )}
+          {/* Lista de coincidencias en BD (referencias que empiezan por la montada) */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 11, color: "#525252", fontWeight: 600, marginBottom: 4 }}>
+              Productos en la base de datos {coincidencias.length > 0 ? `(${coincidencias.length})` : ""}
+            </div>
+            <div style={{ maxHeight: 140, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 6 }}>
+              {noEncontrado && !buscandoBD && (
+                <div style={{ padding: 12, color: "#b91c1c", fontSize: 12, textAlign: "center" }}>
+                  No hay productos cuya referencia empiece por "{refFinal}".
+                </div>
+              )}
+              {!noEncontrado && coincidencias.length === 0 && (
+                <div style={{ padding: 12, color: "#94a3b8", fontSize: 12, textAlign: "center" }}>
+                  Selecciona opciones para montar la referencia y ver las coincidencias.
+                </div>
+              )}
+              {coincidencias.map((p, i) => (
+                <div key={i} onClick={() => setDatosBD(p)}
+                  style={{ padding: "6px 10px", cursor: "pointer", fontSize: 12, borderBottom: "1px solid #f1f5f9",
+                    background: datosBD && datosBD.id === p.id ? "#dbeafe" : "transparent",
+                    display: "flex", justifyContent: "space-between", gap: 10 }}>
+                  <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#1e3a5f", whiteSpace: "nowrap" }}>{p.referencia}</span>
+                  <span style={{ color: "#475569", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{p.nombre || p.descripcion || ""}</span>
+                  <span style={{ color: "#0369a1", fontWeight: 600, whiteSpace: "nowrap" }}>{fmtEur(Number(p.pvp) || 0)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
 
+          {/* Datos del producto seleccionado de la lista */}
           <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#525252" }}>Referencia</span>
+            <span style={{ fontSize: 13, color: datosBD ? "#1e3a5f" : "#94a3b8", fontFamily: "monospace", fontWeight: 600 }}>{datosBD ? datosBD.referencia : "—"}</span>
             <span style={{ fontSize: 12, fontWeight: 600, color: "#525252" }}>PVP</span>
             <span style={{ fontSize: 13, color: datosBD ? "#0369a1" : "#94a3b8", fontWeight: 600 }}>{datosBD ? fmtEur(Number(datosBD.pvp) || 0) : "—"}</span>
             <span style={{ fontSize: 12, fontWeight: 600, color: "#525252" }}>Nombre</span>
@@ -10635,7 +10678,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.98.2 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.99.0 (9 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -11039,7 +11082,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.98.2 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.99.0 (9 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
