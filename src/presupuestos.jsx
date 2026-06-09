@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.98.1 (9 Junio 2026)
+// Versión: v1.98.2 (9 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.98.2 (9 Junio 2026) - Asistente Referencias: la opción SOBREESCRIBE desde la posición indicada (no inserta); referencia más grande en la lista de productos
 //   v1.98.1 (9 Junio 2026) - Asistente Referencias: posición -1 inserta la opción al final de la referencia (admite varias)
 //   v1.98.0 (9 Junio 2026) - Nueva funcionalidad Productos → Asistente Referencias: lista productos+opciones, monta la referencia insertando opciones por posición, consulta productos en BD e inserta en el presupuesto
 //   v1.97.0 (8 Junio 2026) - Excel Imprimir: pestaña "Condiciones Comerciales" con las condiciones particulares de suministro (negrita en títulos, hipervínculos clicables)
@@ -8785,20 +8786,25 @@ function AsistenteReferenciasDialog({ onClose, onInsertar, setStatus }) {
     setNoEncontrado(false);
   };
 
-  // Montar la referencia final: insertar cada opción en su posición (de mayor a menor
-  // para que las posiciones no se desplacen entre sí). posicion es 1-based.
-  // posicion = -1 → se inserta al final de la referencia (se aplican en último lugar).
+  // Montar la referencia final: cada opción SOBRESCRIBE los caracteres de la referencia
+  // base a partir de su posición (1-based). posicion = -1 → se añade al final.
+  // Ejemplo: base "3RT....-...." + pos4 "2025-" → "3RT2025-...." ; + pos9 "1" → "3RT2025-1..."
   useEffect(() => {
     let ref = refBase || "";
     const todas = Object.values(opcionesSel).filter(o => o && o.referencia);
-    // 1) Opciones con posición fija, de mayor a menor (insertar por la derecha no desplaza las de la izquierda)
-    const fijas = todas.filter(o => Number(o.posicion) !== -1).sort((a, b) => (Number(b.posicion) || 0) - (Number(a.posicion) || 0));
+    // 1) Opciones con posición fija: sobrescribir a partir de (posicion - 1)
+    const fijas = todas.filter(o => Number(o.posicion) !== -1).sort((a, b) => (Number(a.posicion) || 0) - (Number(b.posicion) || 0));
     fijas.forEach(o => {
       const pos = Math.max(1, Number(o.posicion) || 1);
-      const idx = Math.min(pos - 1, ref.length);
-      ref = ref.slice(0, idx) + o.referencia + ref.slice(idx);
+      const idx = pos - 1; // índice 0-based donde empieza a sobrescribir
+      const opref = o.referencia;
+      // Si la referencia base es más corta, se rellena con la opción a partir de idx
+      const inicio = ref.slice(0, idx);
+      const relleno = inicio.length < idx ? " ".repeat(idx - inicio.length) : "";
+      const resto = ref.slice(idx + opref.length); // lo que queda tras los caracteres sobrescritos
+      ref = inicio + relleno + opref + resto;
     });
-    // 2) Opciones de final (posición -1), en el orden en que estén
+    // 2) Opciones de final (posición -1): se añaden al final
     const finales = todas.filter(o => Number(o.posicion) === -1);
     finales.forEach(o => { ref = ref + o.referencia; });
     setRefFinal(ref);
@@ -8854,7 +8860,7 @@ function AsistenteReferenciasDialog({ onClose, onInsertar, setStatus }) {
                   style={{ padding: "6px 10px", cursor: "pointer", fontSize: 12, borderBottom: "1px solid #f1f5f9",
                     background: prodSel?.id === p.id ? "#dbeafe" : "transparent" }}>
                   <div style={{ fontWeight: 600, color: "#171717" }}>{p.nombre}</div>
-                  <div style={{ fontFamily: "monospace", color: "#64748b", fontSize: 11 }}>{p.referencia}</div>
+                  <div style={{ fontFamily: "monospace", color: "#2563eb", fontSize: 13, fontWeight: 600 }}>{p.referencia}</div>
                 </div>
               ))}
               {!cargandoProd && productos.length === 0 && (
@@ -10629,7 +10635,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.98.1 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.98.2 (9 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -11033,7 +11039,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.98.1 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.98.2 (9 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
