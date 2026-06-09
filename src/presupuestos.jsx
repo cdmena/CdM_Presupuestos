@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.97.0 (8 Junio 2026)
+// Versión: v1.98.1 (9 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.98.1 (9 Junio 2026) - Asistente Referencias: posición -1 inserta la opción al final de la referencia (admite varias)
+//   v1.98.0 (9 Junio 2026) - Nueva funcionalidad Productos → Asistente Referencias: lista productos+opciones, monta la referencia insertando opciones por posición, consulta productos en BD e inserta en el presupuesto
 //   v1.97.0 (8 Junio 2026) - Excel Imprimir: pestaña "Condiciones Comerciales" con las condiciones particulares de suministro (negrita en títulos, hipervínculos clicables)
 //   v1.96.0 (8 Junio 2026) - Error Boundary: un fallo de render ya no deja la app en blanco (muestra aviso + Reintentar). commitEdit más defensivo (captura la celda y try/catch) para el blur del editor multilínea
 //   v1.95.0 (8 Junio 2026) - Etiqueta de estructura siempre visible: verde "Estructura activa" / gris "Estructura desactivada", clicable para alternar
@@ -8722,6 +8724,215 @@ function ActualizarProductosDialog({ datos, onClose, setStatus }) {
 }
 
 // ── Error Boundary: evita que un fallo de render deje la app en blanco ──
+// ── Diálogo Asistente de Referencias ──
+// Permite elegir un producto base y combinar opciones que se insertan en posiciones
+// concretas de la referencia. Con la referencia final montada, consulta la tabla
+// productos para traer PVP, nombre y descripción.
+function AsistenteReferenciasDialog({ onClose, onInsertar, setStatus }) {
+  const [productos, setProductos] = useState([]);
+  const [cargandoProd, setCargandoProd] = useState(true);
+  const [prodSel, setProdSel] = useState(null);        // producto seleccionado
+  const [opciones, setOpciones] = useState([]);        // opciones del producto
+  const [cargandoOpc, setCargandoOpc] = useState(false);
+  const [opcionesSel, setOpcionesSel] = useState({});  // { posicion: opcion } una por posición
+
+  const [refBase, setRefBase] = useState("");          // referencia base del producto
+  const [refFinal, setRefFinal] = useState("");        // referencia montada
+
+  // Datos consultados de la tabla productos
+  const [datosBD, setDatosBD] = useState(null);        // { referencia, pvp, nombre, descripcion } | null
+  const [buscandoBD, setBuscandoBD] = useState(false);
+  const [noEncontrado, setNoEncontrado] = useState(false);
+
+  // Cargar productos del asistente al abrir
+  useEffect(() => {
+    setCargandoProd(true);
+    fetch(`${API_URL}/asistentes/productos`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => { setProductos(Array.isArray(data) ? data : []); })
+      .catch(() => setStatus && setStatus("No se pudieron cargar los productos del asistente", "error"))
+      .finally(() => setCargandoProd(false));
+  }, []);
+
+  // Al seleccionar producto: fijar referencia base y cargar opciones
+  const seleccionarProducto = (p) => {
+    setProdSel(p);
+    setRefBase(p.referencia || "");
+    setOpcionesSel({});
+    setDatosBD(null);
+    setNoEncontrado(false);
+    setCargandoOpc(true);
+    fetch(`${API_URL}/asistentes/opciones/${p.id}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setOpciones(Array.isArray(data) ? data : []))
+      .catch(() => setOpciones([]))
+      .finally(() => setCargandoOpc(false));
+  };
+
+  // Alternar una opción. Una por cada posición fija; las de posición -1 (final) pueden ser varias.
+  const toggleOpcion = (opc) => {
+    setOpcionesSel(prev => {
+      const next = { ...prev };
+      const key = Number(opc.posicion) === -1 ? `fin:${opc.referencia}` : String(opc.posicion);
+      if (next[key] && next[key].referencia === opc.referencia) {
+        delete next[key]; // deseleccionar
+      } else {
+        next[key] = opc;
+      }
+      return next;
+    });
+    setDatosBD(null);
+    setNoEncontrado(false);
+  };
+
+  // Montar la referencia final: insertar cada opción en su posición (de mayor a menor
+  // para que las posiciones no se desplacen entre sí). posicion es 1-based.
+  // posicion = -1 → se inserta al final de la referencia (se aplican en último lugar).
+  useEffect(() => {
+    let ref = refBase || "";
+    const todas = Object.values(opcionesSel).filter(o => o && o.referencia);
+    // 1) Opciones con posición fija, de mayor a menor (insertar por la derecha no desplaza las de la izquierda)
+    const fijas = todas.filter(o => Number(o.posicion) !== -1).sort((a, b) => (Number(b.posicion) || 0) - (Number(a.posicion) || 0));
+    fijas.forEach(o => {
+      const pos = Math.max(1, Number(o.posicion) || 1);
+      const idx = Math.min(pos - 1, ref.length);
+      ref = ref.slice(0, idx) + o.referencia + ref.slice(idx);
+    });
+    // 2) Opciones de final (posición -1), en el orden en que estén
+    const finales = todas.filter(o => Number(o.posicion) === -1);
+    finales.forEach(o => { ref = ref + o.referencia; });
+    setRefFinal(ref);
+  }, [refBase, opcionesSel]);
+
+  // Consultar la tabla productos con la referencia final
+  const consultarProducto = () => {
+    const ref = (refFinal || "").trim();
+    if (!ref) { setStatus && setStatus("No hay referencia que consultar", "error"); return; }
+    setBuscandoBD(true);
+    setNoEncontrado(false);
+    fetch(`${API_URL}/productos/referencia/${encodeURIComponent(ref)}`)
+      .then(r => {
+        if (r.status === 404) { setNoEncontrado(true); setDatosBD(null); return null; }
+        return r.ok ? r.json() : null;
+      })
+      .then(data => { if (data) { setDatosBD(data); setNoEncontrado(false); } })
+      .catch(() => setStatus && setStatus("Error consultando el producto", "error"))
+      .finally(() => setBuscandoBD(false));
+  };
+
+  const insertar = () => {
+    if (!datosBD) { setStatus && setStatus("Primero consulta el producto en la base de datos", "error"); return; }
+    onInsertar(datosBD);
+    setStatus && setStatus(`Producto ${datosBD.referencia} insertado`, "success");
+    onClose();
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "92%", maxWidth: 1000, height: "88vh", maxHeight: "94vh", minWidth: 560, minHeight: 400, display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", resize: "both", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+
+        {/* Cabecera */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <h2 style={{ fontSize: 17, fontWeight: 700, color: "#171717", margin: 0, display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <Icon as={Bot} size={20} color="#2563eb" /> Asistente de Referencias
+          </h2>
+          <button onClick={onClose} style={{ border: "none", background: "transparent", cursor: "pointer", color: "#64748b" }}>
+            <Icon as={X} size={20} />
+          </button>
+        </div>
+
+        {/* Dos listas */}
+        <div style={{ display: "flex", gap: 14, flex: "1 1 auto", minHeight: 180, marginBottom: 14 }}>
+          {/* Lista de productos */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ padding: "6px 10px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: 12, fontWeight: 600, color: "#171717" }}>
+              Productos {cargandoProd ? "(cargando...)" : `(${productos.length})`}
+            </div>
+            <div style={{ flex: 1, overflow: "auto" }}>
+              {productos.map(p => (
+                <div key={p.id} onClick={() => seleccionarProducto(p)}
+                  style={{ padding: "6px 10px", cursor: "pointer", fontSize: 12, borderBottom: "1px solid #f1f5f9",
+                    background: prodSel?.id === p.id ? "#dbeafe" : "transparent" }}>
+                  <div style={{ fontWeight: 600, color: "#171717" }}>{p.nombre}</div>
+                  <div style={{ fontFamily: "monospace", color: "#64748b", fontSize: 11 }}>{p.referencia}</div>
+                </div>
+              ))}
+              {!cargandoProd && productos.length === 0 && (
+                <div style={{ padding: 16, color: "#94a3b8", fontSize: 12, textAlign: "center" }}>No hay productos en el asistente</div>
+              )}
+            </div>
+          </div>
+
+          {/* Lista de opciones */}
+          <div style={{ flex: 1, display: "flex", flexDirection: "column", border: "1px solid #e2e8f0", borderRadius: 8, overflow: "hidden" }}>
+            <div style={{ padding: "6px 10px", background: "#f8fafc", borderBottom: "1px solid #e2e8f0", fontSize: 12, fontWeight: 600, color: "#171717" }}>
+              Opciones {cargandoOpc ? "(cargando...)" : prodSel ? `(${opciones.length})` : ""}
+            </div>
+            <div style={{ flex: 1, overflow: "auto" }}>
+              {!prodSel && <div style={{ padding: 16, color: "#94a3b8", fontSize: 12, textAlign: "center" }}>Selecciona un producto</div>}
+              {opciones.map((o, i) => {
+                const key = Number(o.posicion) === -1 ? `fin:${o.referencia}` : String(o.posicion);
+                const seleccionada = opcionesSel[key] && opcionesSel[key].referencia === o.referencia;
+                return (
+                  <div key={i} onClick={() => toggleOpcion(o)}
+                    style={{ padding: "6px 10px", cursor: "pointer", fontSize: 12, borderBottom: "1px solid #f1f5f9",
+                      background: seleccionada ? "#dcfce7" : "transparent" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <span style={{ color: "#171717" }}>{o.descripcion}</span>
+                      <span style={{ fontFamily: "monospace", color: "#2563eb", fontWeight: 600 }}>{o.referencia}</span>
+                    </div>
+                    <div style={{ color: "#94a3b8", fontSize: 10 }}>{Number(o.posicion) === -1 ? "Posición: final" : `Posición ${o.posicion}`}{seleccionada ? " · seleccionada" : ""}</div>
+                  </div>
+                );
+              })}
+              {prodSel && !cargandoOpc && opciones.length === 0 && (
+                <div style={{ padding: 16, color: "#94a3b8", fontSize: 12, textAlign: "center" }}>Este producto no tiene opciones</div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Campos inferiores */}
+        <div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 12, flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 10 }}>
+            <div style={{ flex: 2 }}>
+              <label style={{ fontSize: 11, color: "#525252", fontWeight: 500, display: "block", marginBottom: 3 }}>Referencia</label>
+              <input value={refFinal} onChange={e => { setRefFinal(e.target.value); setDatosBD(null); setNoEncontrado(false); }}
+                style={{ width: "100%", padding: "6px 8px", border: "1px solid #d4d4d4", borderRadius: 4, fontSize: 13, fontFamily: "monospace", fontWeight: 600, boxSizing: "border-box" }} />
+            </div>
+            <button onClick={consultarProducto} disabled={buscandoBD || !refFinal.trim()}
+              style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: (buscandoBD || !refFinal.trim()) ? "#cbd5e1" : "#2563eb", color: "#fff", cursor: (buscandoBD || !refFinal.trim()) ? "default" : "pointer", fontSize: 13, fontWeight: 600, whiteSpace: "nowrap" }}>
+              {buscandoBD ? "Buscando..." : "Consultar en BD"}
+            </button>
+          </div>
+
+          {noEncontrado && (
+            <div style={{ fontSize: 12, color: "#b91c1c", marginBottom: 8 }}>No se encontró ningún producto con la referencia "{refFinal}".</div>
+          )}
+
+          <div style={{ display: "grid", gridTemplateColumns: "120px 1fr", gap: 8, alignItems: "center", marginBottom: 6 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#525252" }}>PVP</span>
+            <span style={{ fontSize: 13, color: datosBD ? "#0369a1" : "#94a3b8", fontWeight: 600 }}>{datosBD ? fmtEur(Number(datosBD.pvp) || 0) : "—"}</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#525252" }}>Nombre</span>
+            <span style={{ fontSize: 13, color: datosBD ? "#171717" : "#94a3b8" }}>{datosBD ? (datosBD.nombre || "—") : "—"}</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "#525252" }}>Descripción</span>
+            <span style={{ fontSize: 13, color: datosBD ? "#475569" : "#94a3b8" }}>{datosBD ? (datosBD.descripcion || "—") : "—"}</span>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+            <button onClick={onClose} style={{ padding: "8px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13 }}>Cerrar</button>
+            <button onClick={insertar} disabled={!datosBD}
+              style={{ padding: "8px 16px", borderRadius: 6, border: "none", background: !datosBD ? "#cbd5e1" : "#16a34a", color: "#fff", cursor: !datosBD ? "default" : "pointer", fontSize: 13, fontWeight: 600 }}>
+              Insertar en presupuesto
+            </button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
 class ErrorBoundary extends Component {
   constructor(props) {
     super(props);
@@ -9117,6 +9328,7 @@ function AppInner() {
   const [showGuardarElem, setShowGuardarElem] = useState(false);
   const [showLeerElem, setShowLeerElem] = useState(false);
   const [showLeerProducto, setShowLeerProducto] = useState(false);
+  const [showAsistente, setShowAsistente] = useState(false);
   const [actualizarProductos, setActualizarProductos] = useState(null); // { existentes: [{fila, productoBD}], gruposCache } | null
   const [confirmBorrarPresup, setConfirmBorrarPresup] = useState(false);
   const [comprobarDialog, setComprobarDialog] = useState(null); // { tipo: "iguales" | "diferentes" | "no_existe", diffs: [], comparado: presupuestoBD }
@@ -10190,6 +10402,7 @@ function AppInner() {
       return;
     }
     if (action === "LeerProducto") { setShowLeerProducto(true); return; }
+    if (action === "Asistente") { setShowAsistente(true); return; }
     if (action === "BuscarDatosProductos") {
       // Determinar qué filas procesar:
       // 1. Si hay rango seleccionado (Shift+click/arrastrar) → todas las filas del rango
@@ -10416,7 +10629,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.97.0 (8 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.98.1 (9 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -10820,7 +11033,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.97.0 (8 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.98.1 (9 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
@@ -11608,6 +11821,44 @@ function AppInner() {
           />
         );
       })()}
+      {showAsistente && (
+        <AsistenteReferenciasDialog
+          setStatus={setStatus}
+          onClose={() => setShowAsistente(false)}
+          onInsertar={(prod) => {
+            const datosProd = {
+              representacion: "", naturaleza: "PD", posicion: "", cantidad: 1,
+              referencia: prod.referencia || "", nombre: prod.nombre || "",
+              pvp: Number(prod.pvp) || 0, dtoaplicado: Number(prod.dtoreferenciagrupo) || 0,
+              descripcion: prod.descripcion || "", familia: prod.familia || "",
+              subfamilia: prod.subfamilia || "", descripcionsubfamilia: prod.descripcionsubfamilia || "",
+              preciocosteunitario: Number(prod.preciocoste) || 0, idposicion: prod.id || "",
+              imagen: prod.imagen || "", precionetounitario2: 0,
+              grupodescuento: prod.grupodescuento || "", descripciongrupodescuento: prod.descripciongrupodescuento || "",
+              fechapvp: prod.fechapvp || null, fechapreciocoste: prod.fechapreciocoste || null,
+              pvpVencido: tieneMasDeUnAno(prod.fechapvp),
+            };
+            const esFilaVacia = (row) =>
+              !String(row.referencia || "").trim() && !String(row.nombre || "").trim() &&
+              !String(row.descripcion || "").trim() && !String(row.naturaleza || "").trim();
+            setRows(r => {
+              const idx = selectedCell ? r.findIndex(row => row.id === selectedCell.rowId) : -1;
+              if (idx === -1) {
+                let nextLocalId = Math.max(...r.map(x => x.id), 0) + 1;
+                nextId.current = nextLocalId + 1;
+                return [...r, { id: nextLocalId, ...datosProd }];
+              }
+              const filaActual = r[idx];
+              if (esFilaVacia(filaActual)) {
+                const res = [...r]; res[idx] = { ...filaActual, ...datosProd }; return res;
+              }
+              let nextLocalId = Math.max(...r.map(x => x.id), 0) + 1;
+              nextId.current = nextLocalId + 1;
+              const res = [...r]; res.splice(idx, 0, { id: nextLocalId, ...datosProd }); return res;
+            });
+          }}
+        />
+      )}
       {confirmBorrarPresup && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }}>
           <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", minWidth: 380, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
