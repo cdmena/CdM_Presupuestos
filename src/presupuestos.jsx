@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v1.99.0 (9 Junio 2026)
+// Versión: v1.99.1 (9 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v1.99.1 (9 Junio 2026) - Asistente Referencias: opciones ordenadas por posición y, dentro de cada posición, por referencia (posición -1 al final)
 //   v1.99.0 (9 Junio 2026) - Asistente Referencias: búsqueda automática en BD al montar la referencia; lista de productos cuya referencia empieza por la montada (como el autocompletado del grid); se elige uno e inserta
 //   v1.98.2 (9 Junio 2026) - Asistente Referencias: la opción SOBREESCRIBE desde la posición indicada (no inserta); referencia más grande en la lista de productos
 //   v1.98.1 (9 Junio 2026) - Asistente Referencias: posición -1 inserta la opción al final de la referencia (admite varias)
@@ -8768,7 +8769,18 @@ function AsistenteReferenciasDialog({ onClose, onInsertar, setStatus }) {
     setCargandoOpc(true);
     fetch(`${API_URL}/asistentes/opciones/${p.id}`)
       .then(r => r.ok ? r.json() : [])
-      .then(data => setOpciones(Array.isArray(data) ? data : []))
+      .then(data => {
+        const arr = Array.isArray(data) ? [...data] : [];
+        // Ordenar por posición y, dentro de la misma posición, por referencia
+        arr.sort((a, b) => {
+          // posición -1 (final) se muestra al final de la lista
+          const pa = Number(a.posicion) === -1 ? Infinity : (Number(a.posicion) || 0);
+          const pb = Number(b.posicion) === -1 ? Infinity : (Number(b.posicion) || 0);
+          if (pa !== pb) return pa - pb;
+          return String(a.referencia || "").localeCompare(String(b.referencia || ""));
+        });
+        setOpciones(arr);
+      })
       .catch(() => setOpciones([]))
       .finally(() => setCargandoOpc(false));
   };
@@ -10678,7 +10690,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.99.0 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.99.1 (9 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -11082,7 +11094,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v1.99.0 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v1.99.1 (9 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
