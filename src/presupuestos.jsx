@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.08.0 (10 Junio 2026)
+// Versión: v2.09.0 (10 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.09.0 (10 Junio 2026) - Leer Precios PMD: checkboxes para elegir qué campos leer y aplicar (referencia, descripción, pvp, precio coste, grupo descuento)
+//   v2.08.1 (10 Junio 2026) - Separador de miles (useGrouping always) en el PVP de Leer Producto y del detalle de Leer Elemento
 //   v2.08.0 (10 Junio 2026) - Leer Producto: nueva columna Fecha PVP (dd/mm/aaaa) y columna Grupo Dto. más estrecha
 //   v2.07.0 (10 Junio 2026) - Avisos en barra de estado al cargar desde BD en Leer Producto, Leer Elemento y Gestionar Estrategias Descuento (working + resultado), como en Leer Presupuesto
 //   v2.06.0 (10 Junio 2026) - Estrategias de descuento: botón "Copiar estrategia" que duplica la seleccionada con el mismo nombre + " copia" y su mismo detalle
@@ -7191,7 +7193,7 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus }) {
                     <td style={{ padding: "5px 10px", textAlign: "center", color: "#475569", fontWeight: 500 }}>{p.masusado ?? 0}</td>
                     <td style={{ padding: "5px 10px", fontWeight: 600, color: "#1e3a5f", fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={p.referencia}>{p.referencia}</td>
                     <td style={{ padding: "5px 10px", textAlign: "right", color: "#0369a1", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {(Number(p.pvp) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                      {(Number(p.pvp) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" })} €
                     </td>
                     <td style={{ padding: "5px 10px", textAlign: "center", color: "#64748b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={fmtFecha(p.fechapvp)}>
                       {fmtFecha(p.fechapvp)}
@@ -7783,7 +7785,7 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
                             <td style={{ padding: "4px 8px", textAlign: "center", color: "#475569" }}>{p.cantidad || 0}</td>
                             <td style={{ padding: "4px 8px", color: "#1e3a5f", fontFamily: "monospace", whiteSpace: "nowrap", fontWeight: 600 }}>{p.referencia || ""}</td>
                             <td style={{ padding: "4px 8px", color: "#171717" }}>{p.nombre || ""}</td>
-                            <td style={{ padding: "4px 8px", textAlign: "right", color: "#0369a1" }}>{(Number(p.pvp) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2 })}</td>
+                            <td style={{ padding: "4px 8px", textAlign: "right", color: "#0369a1" }}>{(Number(p.pvp) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" })}</td>
                             <td style={{ padding: "4px 8px", color: "#737373" }}>{p.familia || ""}</td>
                             <td style={{ padding: "4px 8px", color: "#737373" }}>{p.subfamilia || ""}</td>
                             <td style={{ padding: "4px 8px", textAlign: "right", color: "#94a3b8", fontFamily: "monospace" }}>{p.idproducto}</td>
@@ -8115,6 +8117,22 @@ function LeerPreciosPMDDialog({ dialog, onClose, setStatus, aplicarAFila }) {
   const [referencia, setReferencia] = useState(dialog.referencia || "");
   const [cargando, setCargando] = useState(false);
   const [accion, setAccion] = useState(""); // "presupuesto" o "csv"
+  // Campos que se pueden leer de PMD y aplicar a la fila
+  const [campos, setCampos] = useState({
+    referencia: true,
+    descripcion: true,
+    pvp: true,
+    preciocoste: true,
+    grupodescuento: true,
+  });
+  const toggleCampo = (k) => setCampos(c => ({ ...c, [k]: !c[k] }));
+  const CAMPOS_PMD = [
+    { key: "referencia", label: "Referencia" },
+    { key: "descripcion", label: "Descripción" },
+    { key: "pvp", label: "PVP" },
+    { key: "preciocoste", label: "Precio coste" },
+    { key: "grupodescuento", label: "Grupo descuento" },
+  ];
 
   const obtenerYAplicar = async () => {
     const ref = referencia.trim();
@@ -8129,9 +8147,17 @@ function LeerPreciosPMDDialog({ dialog, onClose, setStatus, aplicarAFila }) {
       const r = await fetch(`${API_LOCAL_URL}/precio?mlfb=${encodeURIComponent(ref)}`);
       if (!r.ok) throw new Error("HTTP " + r.status);
       const data = await r.json();
+      // Filtrar solo los campos marcados por el usuario
+      const filtrado = {};
+      CAMPOS_PMD.forEach(c => {
+        if (campos[c.key]) {
+          if (c.key === "referencia") filtrado.referencia = ref;
+          else if (data[c.key] != null) filtrado[c.key] = data[c.key];
+        }
+      });
       // Aplicar a la fila objetivo (si existe)
       if (dialog.rowIdx >= 0) {
-        aplicarAFila(dialog.rowIdx, { ...data, referencia: ref });
+        aplicarAFila(dialog.rowIdx, filtrado);
         setStatus(`Datos de PMD aplicados a la fila ${dialog.rowIdx + 1} (${ref})`, "success");
         onClose();
       } else {
@@ -8196,6 +8222,18 @@ function LeerPreciosPMDDialog({ dialog, onClose, setStatus, aplicarAFila }) {
           />
         </div>
 
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: "#525252", fontWeight: 600, marginBottom: 6 }}>Campos a leer y aplicar:</div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px" }}>
+            {CAMPOS_PMD.map(c => (
+              <label key={c.key} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, cursor: "pointer", color: "#171717" }}>
+                <input type="checkbox" checked={!!campos[c.key]} onChange={() => toggleCampo(c.key)} />
+                {c.label}
+              </label>
+            ))}
+          </div>
+        </div>
+
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", flexWrap: "wrap", paddingTop: 8, borderTop: "1px solid #e5e5e5" }}>
           <button onClick={onClose} disabled={cargando}
             style={{ padding: "7px 14px", borderRadius: 6, border: "1px solid #d4d4d4", background: "#fff", color: "#171717", cursor: cargando ? "default" : "pointer", fontSize: 12 }}>
@@ -8207,8 +8245,8 @@ function LeerPreciosPMDDialog({ dialog, onClose, setStatus, aplicarAFila }) {
               {(cargando && accion === "csv") ? "Generando..." : "datos de PMD a CSV"}
             </BtnContent>
           </button>
-          <button onClick={obtenerYAplicar} disabled={cargando || !referencia.trim()}
-            style={{ padding: "7px 16px", borderRadius: 6, border: "1px solid #16a34a", background: "#dcfce7", color: "#14532d", cursor: (cargando || !referencia.trim()) ? "default" : "pointer", fontSize: 12, fontWeight: 600 }}>
+          <button onClick={obtenerYAplicar} disabled={cargando || !referencia.trim() || !Object.values(campos).some(Boolean)}
+            style={{ padding: "7px 16px", borderRadius: 6, border: "1px solid #16a34a", background: "#dcfce7", color: "#14532d", cursor: (cargando || !referencia.trim() || !Object.values(campos).some(Boolean)) ? "default" : "pointer", fontSize: 12, fontWeight: 600, opacity: (!Object.values(campos).some(Boolean)) ? 0.5 : 1 }}>
             <BtnContent icon={(cargando && accion === "presupuesto") ? RefreshCw : Check} iconColor="#14532d">
               {(cargando && accion === "presupuesto") ? "Consultando..." : "datos de PMD a Presupuesto"}
             </BtnContent>
@@ -11718,7 +11756,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.08.0 (10 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.09.0 (10 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12122,7 +12160,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.08.0 (10 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.09.0 (10 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
