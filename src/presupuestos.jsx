@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.05.3 (10 Junio 2026)
+// Versión: v2.06.0 (10 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.06.0 (10 Junio 2026) - Estrategias de descuento: botón "Copiar estrategia" que duplica la seleccionada con el mismo nombre + " copia" y su mismo detalle
 //   v2.05.3 (10 Junio 2026) - Gestor equivalencias: la lista de competencia muestra columna descripción con tooltip de la descripción completa
 //   v2.05.2 (10 Junio 2026) - Gestor equivalencias: dos listas de referencias seleccionadas (competencia/Siemens) con quitar individual y botón "Borrar selección" por lado
 //   v2.05.1 (9 Junio 2026) - Gestionar Contactos: la tabla ocupa todo el alto del diálogo (panel flex column, lista y scroll con flex 1)
@@ -9345,6 +9346,28 @@ function EstrategiasDescuentoDialog({ onClose, onAplicar, setStatus }) {
     }
   };
 
+  const copiarEstrategia = async () => {
+    if (!sel) return;
+    const payload = {
+      nombre: `${sel.nombre || "Estrategia"} copia`,
+      descripcion: sel.descripcion || null,
+      detalle: (detalle || []).filter(d => d.idgrupodescuento).map(d => ({
+        idgrupodescuento: d.idgrupodescuento,
+        descuento: Number(d.descuento) || 0,
+      })),
+    };
+    try {
+      const r = await fetch(`${API_URL}/descuentos/`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      setStatus && setStatus(`Estrategia copiada como "${payload.nombre}"`, "success");
+      cargarLista();
+    } catch (e) {
+      setStatus && setStatus("Error al copiar la estrategia: " + e.message, "error");
+    }
+  };
+
   const aplicar = () => {
     if (!detalle || detalle.length === 0) { setStatus && setStatus("La estrategia no tiene descuentos", "error"); return; }
     onAplicar(detalle);
@@ -9453,6 +9476,7 @@ function EstrategiasDescuentoDialog({ onClose, onAplicar, setStatus }) {
             {modo === "ver" && sel && (
               <>
                 <button onClick={editarEstrategia} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}><Icon as={Edit3} size={14} color="#475569" /> Editar</button>
+                <button onClick={copiarEstrategia} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}><Icon as={Copy} size={14} color="#475569" /> Copiar estrategia</button>
                 <button onClick={() => setConfirmBorrar(true)} style={{ padding: "8px 14px", borderRadius: 6, border: "1px solid #fca5a5", background: "#fff", color: "#b91c1c", cursor: "pointer", fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}><Icon as={Trash2} size={14} color="#b91c1c" /> Borrar</button>
               </>
             )}
@@ -11677,7 +11701,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.05.3 (10 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.06.0 (10 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12081,7 +12105,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.05.3 (10 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.06.0 (10 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
