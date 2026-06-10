@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.05.2 (10 Junio 2026)
+// Versión: v2.05.3 (10 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.05.3 (10 Junio 2026) - Gestor equivalencias: la lista de competencia muestra columna descripción con tooltip de la descripción completa
 //   v2.05.2 (10 Junio 2026) - Gestor equivalencias: dos listas de referencias seleccionadas (competencia/Siemens) con quitar individual y botón "Borrar selección" por lado
 //   v2.05.1 (9 Junio 2026) - Gestionar Contactos: la tabla ocupa todo el alto del diálogo (panel flex column, lista y scroll con flex 1)
 //   v2.05.0 (9 Junio 2026) - Todos los diálogos se pueden mover arrastrando su zona superior (hook global useDialogDrag, sin tocar cada diálogo)
@@ -9765,9 +9766,10 @@ function GestorEquivalenciasDialog({ onClose, setStatus }) {
               style={{ width: "100%", padding: "6px 8px", border: "1px solid #d4d4d4", borderRadius: 4, fontSize: 12, boxSizing: "border-box", marginBottom: 8 }} />
             <ListaResultados titulo="Coincidencias" buscando={buscandoComp} resultados={resComp} sel={selComp} setSel={setSelComp}
               render={(p, marcada) => (
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                  <span style={{ fontFamily: "monospace", fontWeight: 600, color: marcada ? "#166534" : "#1e3a5f" }}>{p.referencia}</span>
-                  <span style={{ color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, textAlign: "right" }}>{p.fabricante || p.descripcion || ""}</span>
+                <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+                  <span style={{ fontFamily: "monospace", fontWeight: 600, color: marcada ? "#166534" : "#1e3a5f", flexShrink: 0 }}>{p.referencia}</span>
+                  {p.fabricante && <span style={{ color: "#94a3b8", fontSize: 11, flexShrink: 0 }}>{p.fabricante}</span>}
+                  <span title={p.descripcion || ""} style={{ color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, textAlign: "right" }}>{p.descripcion || ""}</span>
                 </div>
               )} />
           </div>
@@ -11675,7 +11677,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.05.2 (10 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.05.3 (10 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12079,7 +12081,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.05.2 (10 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.05.3 (10 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
