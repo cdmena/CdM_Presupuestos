@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.06.0 (10 Junio 2026)
+// Versión: v2.07.0 (10 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.07.0 (10 Junio 2026) - Avisos en barra de estado al cargar desde BD en Leer Producto, Leer Elemento y Gestionar Estrategias Descuento (working + resultado), como en Leer Presupuesto
 //   v2.06.0 (10 Junio 2026) - Estrategias de descuento: botón "Copiar estrategia" que duplica la seleccionada con el mismo nombre + " copia" y su mismo detalle
 //   v2.05.3 (10 Junio 2026) - Gestor equivalencias: la lista de competencia muestra columna descripción con tooltip de la descripción completa
 //   v2.05.2 (10 Junio 2026) - Gestor equivalencias: dos listas de referencias seleccionadas (competencia/Siemens) con quitar individual y botón "Borrar selección" por lado
@@ -7019,6 +7020,7 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus }) {
   const cargarLista = async () => {
     setCargando(true);
     setError(null);
+    setStatus && setStatus(busqueda.trim() ? `Buscando "${busqueda.trim()}" en productos...` : "Cargando productos...", "working");
     try {
       const LIMITE = 200;
       const params = busqueda.trim() ? `busqueda=${encodeURIComponent(busqueda.trim())}&campo=${campo}&limite=${LIMITE}` : `limite=${LIMITE}`;
@@ -7031,9 +7033,11 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus }) {
       // Ordenar por referencia ascendente
       data.sort((a, b) => String(a.referencia || "").localeCompare(String(b.referencia || "")));
       setProductos(data);
+      setStatus && setStatus(`${data.length}${data.length >= LIMITE ? "+" : ""} producto${data.length !== 1 ? "s" : ""} encontrado${data.length !== 1 ? "s" : ""}`, "success");
     } catch (e) {
       setError(e.message);
       setProductos([]);
+      setStatus && setStatus("Error cargando productos: " + e.message, "error");
     } finally {
       setCargando(false);
     }
@@ -7483,16 +7487,20 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
   const cargarLista = async () => {
     setCargando(true);
     setError(null);
+    setStatus && setStatus(busqueda.trim() ? `Buscando "${busqueda.trim()}" en elementos...` : "Cargando lista de elementos...", "working");
     try {
       const url = busqueda.trim()
         ? `${API_URL}/elementos/?busqueda=${encodeURIComponent(busqueda.trim())}`
         : `${API_URL}/elementos/`;
       const res = await fetch(url);
       if (!res.ok) throw new Error("Error " + res.status);
-      setElementos(await res.json());
+      const data = await res.json();
+      setElementos(data);
+      setStatus && setStatus(`${data.length} elemento${data.length !== 1 ? "s" : ""} encontrado${data.length !== 1 ? "s" : ""}`, "success");
     } catch (e) {
       setError(e.message);
       setElementos([]);
+      setStatus && setStatus("Error cargando elementos: " + e.message, "error");
     } finally {
       setCargando(false);
     }
@@ -9270,7 +9278,11 @@ function EstrategiasDescuentoDialog({ onClose, onAplicar, setStatus }) {
     setCargando(true);
     fetch(`${API_URL}/descuentos/`)
       .then(r => r.ok ? r.json() : [])
-      .then(data => setEstrategias(Array.isArray(data) ? data : []))
+      .then(data => {
+        const arr = Array.isArray(data) ? data : [];
+        setEstrategias(arr);
+        setStatus && setStatus(`${arr.length} estrategia${arr.length !== 1 ? "s" : ""} de descuento`, "success");
+      })
       .catch(() => setStatus && setStatus("No se pudieron cargar las estrategias", "error"))
       .finally(() => setCargando(false));
   };
@@ -10720,7 +10732,7 @@ function AppInner() {
     }
     if (action === "Importar") { setShowImportar(true); setStatus("Abriendo diálogo de importación", "info"); return; }
     if (action === "AplicarDescuentos") { setShowDescuentos(true); setStatus("Abriendo gestor de descuentos por grupo descuento", "info"); return; }
-    if (action === "GestionarEstrategias") { setShowEstrategias(true); return; }
+    if (action === "GestionarEstrategias") { setShowEstrategias(true); setStatus("Cargando estrategias de descuento desde la base de datos...", "working"); return; }
     if (action === "LeerPresupuestos") { setShowLeer(true); setStatus("Cargando lista de presupuestos desde la base de datos...", "working"); return; }
     if (action === "GestionarClientes") { setShowClientes(true); setStatus("Cargando lista de clientes desde la base de datos...", "working"); return; }
     if (action === "GestionarContactos") { setShowContactos(true); setStatus("Cargando lista de contactos desde la base de datos...", "working"); return; }
@@ -11021,7 +11033,7 @@ function AppInner() {
       setShowGuardarElem(true);
       return;
     }
-    if (action === "LeerElemento") { setShowLeerElem(true); return; }
+    if (action === "LeerElemento") { setShowLeerElem(true); setStatus("Cargando lista de elementos desde la base de datos...", "working"); return; }
     if (action === "JuntarDuplicados") {
       // Solo opera sobre el rango seleccionado
       if (!selectionRange) {
@@ -11473,7 +11485,7 @@ function AppInner() {
       })();
       return;
     }
-    if (action === "LeerProducto") { setShowLeerProducto(true); return; }
+    if (action === "LeerProducto") { setShowLeerProducto(true); setStatus("Cargando productos desde la base de datos...", "working"); return; }
     if (action === "Asistente") { setShowAsistente(true); return; }
     if (action === "BuscarDatosProductos") {
       // Determinar qué filas procesar:
@@ -11701,7 +11713,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.06.0 (10 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.07.0 (10 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12105,7 +12117,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.06.0 (10 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.07.0 (10 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
