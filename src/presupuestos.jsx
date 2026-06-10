@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.05.1 (9 Junio 2026)
+// Versión: v2.05.2 (10 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.05.2 (10 Junio 2026) - Gestor equivalencias: dos listas de referencias seleccionadas (competencia/Siemens) con quitar individual y botón "Borrar selección" por lado
 //   v2.05.1 (9 Junio 2026) - Gestionar Contactos: la tabla ocupa todo el alto del diálogo (panel flex column, lista y scroll con flex 1)
 //   v2.05.0 (9 Junio 2026) - Todos los diálogos se pueden mover arrastrando su zona superior (hook global useDialogDrag, sin tocar cada diálogo)
 //   v2.04.0 (9 Junio 2026) - Nueva función Otros → Gestionar BD Competencia: gestor de equivalencias (buscar refs competencia y Siemens, seleccionar 1-a-N, crear equivalencias con comentario/tipo y confirmación de sobrescritura)
@@ -9769,7 +9770,6 @@ function GestorEquivalenciasDialog({ onClose, setStatus }) {
                   <span style={{ color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, textAlign: "right" }}>{p.fabricante || p.descripcion || ""}</span>
                 </div>
               )} />
-            <div style={{ fontSize: 11, color: "#475569", marginTop: 6 }}>Seleccionadas: <strong>{nComp}</strong></div>
           </div>
 
           {/* Columna Siemens */}
@@ -9784,7 +9784,54 @@ function GestorEquivalenciasDialog({ onClose, setStatus }) {
                   <span style={{ color: "#64748b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, textAlign: "right" }}>{p.nombre || ""}</span>
                 </div>
               )} />
-            <div style={{ fontSize: 11, color: "#475569", marginTop: 6 }}>Seleccionadas: <strong>{nSiem}</strong></div>
+          </div>
+        </div>
+
+        {/* Listas de referencias seleccionadas (para verlas aunque no estén en las listas de búsqueda) */}
+        <div style={{ display: "flex", gap: 16, marginTop: 12, flexShrink: 0 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "#ea580c" }}>Competencia seleccionada ({nComp})</span>
+              <button onClick={() => setSelComp({})} disabled={nComp === 0}
+                style={{ padding: "2px 8px", fontSize: 10, border: "1px solid #fca5a5", borderRadius: 4, background: nComp === 0 ? "#f1f5f9" : "#fff", color: nComp === 0 ? "#94a3b8" : "#b91c1c", cursor: nComp === 0 ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <Icon as={Trash2} size={11} color={nComp === 0 ? "#94a3b8" : "#b91c1c"} /> Borrar selección
+              </button>
+            </div>
+            <div style={{ maxHeight: 90, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 6, background: "#fff7ed" }}>
+              {nComp === 0 ? (
+                <div style={{ padding: 8, color: "#94a3b8", fontSize: 11, textAlign: "center" }}>Nada seleccionado</div>
+              ) : Object.values(selComp).map(p => (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "3px 8px", fontSize: 11, borderBottom: "1px solid #fed7aa" }}>
+                  <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#1e3a5f" }}>{p.referencia}</span>
+                  <button onClick={() => toggle(setSelComp, p)} title="Quitar"
+                    style={{ border: "none", background: "transparent", cursor: "pointer", color: "#dc2626", padding: 0, display: "inline-flex" }}>
+                    <Icon as={X} size={12} color="#dc2626" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "#0891b2" }}>Siemens seleccionada ({nSiem})</span>
+              <button onClick={() => setSelSiem({})} disabled={nSiem === 0}
+                style={{ padding: "2px 8px", fontSize: 10, border: "1px solid #fca5a5", borderRadius: 4, background: nSiem === 0 ? "#f1f5f9" : "#fff", color: nSiem === 0 ? "#94a3b8" : "#b91c1c", cursor: nSiem === 0 ? "default" : "pointer", display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <Icon as={Trash2} size={11} color={nSiem === 0 ? "#94a3b8" : "#b91c1c"} /> Borrar selección
+              </button>
+            </div>
+            <div style={{ maxHeight: 90, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 6, background: "#ecfeff" }}>
+              {nSiem === 0 ? (
+                <div style={{ padding: 8, color: "#94a3b8", fontSize: 11, textAlign: "center" }}>Nada seleccionado</div>
+              ) : Object.values(selSiem).map(p => (
+                <div key={p.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, padding: "3px 8px", fontSize: 11, borderBottom: "1px solid #a5f3fc" }}>
+                  <span style={{ fontFamily: "monospace", fontWeight: 600, color: "#1e3a5f" }}>{p.referencia}</span>
+                  <button onClick={() => toggle(setSelSiem, p)} title="Quitar"
+                    style={{ border: "none", background: "transparent", cursor: "pointer", color: "#dc2626", padding: 0, display: "inline-flex" }}>
+                    <Icon as={X} size={12} color="#dc2626" />
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -11628,7 +11675,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.05.1 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.05.2 (10 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12032,7 +12079,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.05.1 (9 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.05.2 (10 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
