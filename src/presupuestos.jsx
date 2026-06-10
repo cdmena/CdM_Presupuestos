@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.09.0 (10 Junio 2026)
+// Versión: v2.10.0 (10 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.10.0 (10 Junio 2026) - Productos → Ver datasheet: abre el SIEPortal de Siemens con la referencia de la fila seleccionada
 //   v2.09.0 (10 Junio 2026) - Leer Precios PMD: checkboxes para elegir qué campos leer y aplicar (referencia, descripción, pvp, precio coste, grupo descuento)
 //   v2.08.1 (10 Junio 2026) - Separador de miles (useGrouping always) en el PVP de Leer Producto y del detalle de Leer Elemento
 //   v2.08.0 (10 Junio 2026) - Leer Producto: nueva columna Fecha PVP (dd/mm/aaaa) y columna Grupo Dto. más estrecha
@@ -3723,6 +3724,7 @@ const MENU_STRUCTURE = [
     { label: "Buscar equivalencia Competencia", action: "BuscarEquivalencia", icon: Repeat, tooltip: "Busca el producto de competencia equivalente a la referencia" },
     { label: "Calcular PVP a partir de GA", action: "CalcularPVP", icon: Calculator, tooltip: "Calcula el PVP a partir del coste GA y el margen" },
     { label: "Asistente Referencias", action: "Asistente", icon: Bot, tooltip: "Asistente para completar y corregir referencias" },
+    { label: "Ver datasheet", action: "VerDatasheet", icon: FileText, tooltip: "Abre la hoja de datos de Siemens (SIEPortal) para la referencia de la fila seleccionada" },
   ]},
   { id: "clientes", icon: Users, label: "Clientes", tooltip: "Gestionar clientes y contactos", items: [
     { label: "Gestionar Clientes", action: "GestionarClientes", icon: Users, tooltip: "Abre la tabla de clientes para crear, editar o borrar" },
@@ -11310,6 +11312,17 @@ function AppInner() {
       }
       return;
     }
+    if (action === "VerDatasheet") {
+      if (!selectedCell) { setStatus("Selecciona una fila con referencia", "error"); return; }
+      const row = rows.find(r => r.id === selectedCell.rowId);
+      if (!row) { setStatus("No se encuentra la fila seleccionada", "error"); return; }
+      const ref = String(row.referencia || "").trim();
+      if (!ref) { setStatus("La fila seleccionada no tiene referencia", "error"); return; }
+      const url = `https://sieportal.siemens.com/es-es/products-services/detail/${encodeURIComponent(ref)}?tree=CatalogTree#overview`;
+      window.open(url, "_blank", "noopener,noreferrer");
+      setStatus(`Abriendo datasheet de ${ref}`, "info");
+      return;
+    }
     if (action === "GestionarProductosCompetencia") { setShowGestorCompetencia(true); return; }
     if (action === "BuscarEquivalencia") {
       // Toma la referencia de la celda seleccionada y abre el diálogo de equivalencias
@@ -11756,7 +11769,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.09.0 (10 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.10.0 (10 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12160,7 +12173,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.09.0 (10 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.10.0 (10 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
