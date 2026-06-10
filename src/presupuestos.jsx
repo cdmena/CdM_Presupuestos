@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.07.0 (10 Junio 2026)
+// Versión: v2.08.0 (10 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.08.0 (10 Junio 2026) - Leer Producto: nueva columna Fecha PVP (dd/mm/aaaa) y columna Grupo Dto. más estrecha
 //   v2.07.0 (10 Junio 2026) - Avisos en barra de estado al cargar desde BD en Leer Producto, Leer Elemento y Gestionar Estrategias Descuento (working + resultado), como en Leer Presupuesto
 //   v2.06.0 (10 Junio 2026) - Estrategias de descuento: botón "Copiar estrategia" que duplica la seleccionada con el mismo nombre + " copia" y su mismo detalle
 //   v2.05.3 (10 Junio 2026) - Gestor equivalencias: la lista de competencia muestra columna descripción con tooltip de la descripción completa
@@ -5689,7 +5690,7 @@ function LeerPresupuestosDialog({ onClose, onCargar, setStatus }) {
                 <tr><td colSpan={7} style={{ padding: "30px", textAlign: "center", color: "#64748b" }}>⏳ Cargando...</td></tr>
               )}
               {!cargando && presupuestos.length === 0 && !error && (
-                <tr><td colSpan={7} style={{ padding: "30px", textAlign: "center", color: "#94a3b8" }}>
+                <tr><td colSpan={8} style={{ padding: "30px", textAlign: "center", color: "#94a3b8" }}>
                   {busqueda ? "No hay presupuestos que coincidan con la búsqueda." : "No hay presupuestos en la base de datos."}
                 </td></tr>
               )}
@@ -6973,7 +6974,7 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus }) {
   const [comprobandoUso, setComprobandoUso] = useState(false);
 
   // Anchos de columna redimensionables (clave → px). Por defecto los iniciales.
-  const ANCHOS_INI = { masusado: 70, referencia: 150, pvp: 90, grupodescuento: 140, descripcion: 320, id: 60 };
+  const ANCHOS_INI = { masusado: 70, referencia: 150, pvp: 90, fechapvp: 95, grupodescuento: 70, descripcion: 320, id: 60 };
   const [anchosCol, setAnchosCol] = useState(ANCHOS_INI);
   const resizeRef = useRef(null);
   const onResizeCol = (e, key) => {
@@ -7162,6 +7163,7 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus }) {
                 <th style={{ position: "relative", width: anchosCol.masusado, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }} title="Más usado">Más Us.<Resizer colKey="masusado" /></th>
                 <th style={{ position: "relative", width: anchosCol.referencia, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>Referencia<Resizer colKey="referencia" /></th>
                 <th style={{ position: "relative", width: anchosCol.pvp, padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>PVP<Resizer colKey="pvp" /></th>
+                <th style={{ position: "relative", width: anchosCol.fechapvp, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }} title="Fecha del PVP">Fecha PVP<Resizer colKey="fechapvp" /></th>
                 <th style={{ position: "relative", width: anchosCol.grupodescuento, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>Grupo Dto.<Resizer colKey="grupodescuento" /></th>
                 <th style={{ position: "relative", width: anchosCol.descripcion, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>Descripción<Resizer colKey="descripcion" /></th>
                 <th style={{ position: "relative", width: anchosCol.id, padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>ID</th>
@@ -7172,7 +7174,7 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus }) {
                 <tr><td colSpan={7} style={{ padding: "30px", textAlign: "center", color: "#64748b" }}>Cargando...</td></tr>
               )}
               {!cargando && productos.length === 0 && !error && (
-                <tr><td colSpan={7} style={{ padding: "30px", textAlign: "center", color: "#94a3b8" }}>
+                <tr><td colSpan={8} style={{ padding: "30px", textAlign: "center", color: "#94a3b8" }}>
                   {busqueda ? "No hay productos que coincidan." : "No hay productos en la base de datos."}
                 </td></tr>
               )}
@@ -7190,6 +7192,9 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus }) {
                     <td style={{ padding: "5px 10px", fontWeight: 600, color: "#1e3a5f", fontFamily: "monospace", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={p.referencia}>{p.referencia}</td>
                     <td style={{ padding: "5px 10px", textAlign: "right", color: "#0369a1", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                       {(Number(p.pvp) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                    </td>
+                    <td style={{ padding: "5px 10px", textAlign: "center", color: "#64748b", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }} title={fmtFecha(p.fechapvp)}>
+                      {fmtFecha(p.fechapvp)}
                     </td>
                     <td style={{ padding: "5px 10px", color: "#475569", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
                       title={p.descripciongrupodescuento || p.grupodescuento || ""}>
@@ -7697,7 +7702,7 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
                 <tr><td colSpan={7} style={{ padding: "30px", textAlign: "center", color: "#64748b" }}>Cargando...</td></tr>
               )}
               {!cargando && elementos.length === 0 && !error && (
-                <tr><td colSpan={7} style={{ padding: "30px", textAlign: "center", color: "#94a3b8" }}>
+                <tr><td colSpan={8} style={{ padding: "30px", textAlign: "center", color: "#94a3b8" }}>
                   {busqueda ? "No hay elementos que coincidan." : "No hay elementos en la base de datos."}
                 </td></tr>
               )}
@@ -11713,7 +11718,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.07.0 (10 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.08.0 (10 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12117,7 +12122,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.07.0 (10 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.08.0 (10 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
