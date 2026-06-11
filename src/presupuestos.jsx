@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.12.0 (11 Junio 2026)
+// Versión: v2.13.0 (11 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.13.0 (11 Junio 2026) - Aplicar Estructura: en filas T1-T3/TT/S1-S4 se borran a null cantidad, referencia, pvp, neto unitario, coste unitario, descripción, familia, subfamilia y grupo descuento (además de ocultarlas)
 //   v2.12.0 (11 Junio 2026) - Leer Elemento: columnas de la lista redimensionables (arrastrar, doble clic restablece) como en Leer Producto; tooltips con el contenido completo en lista y detalle
 //   v2.11.1 (11 Junio 2026) - Menú Presupuestos: "Comparar Presupuestos" → "Comparar 2 presupuestos" y "Comprobar Presupuesto" → "Comparar presupuesto con BD"
 //   v2.11.0 (11 Junio 2026) - Autocompletado referencia del grid: hasta 50 sugerencias con scroll, navegación por teclado con scroll automático y aviso "hay más…" al final para acotar la búsqueda
@@ -10770,9 +10771,23 @@ function AppInner() {
     if (action === "Ayuda") { setVista("ayuda"); setStatus("Mostrando pantalla de ayuda", "info"); return; }
     if (action === "Opciones") { setVista("opciones"); setStatus("Configurando opciones", "info"); return; }
     if (action === "AplicarEstructura") {
+      const NATS_LIMPIAR = ["T1", "T2", "T3", "TT", "S1", "S2", "S3", "S4"];
+      const CAMPOS_LIMPIAR = ["cantidad", "referencia", "pvp", "precionetounitario", "preciocosteunitario", "descripcion", "familia", "subfamilia", "grupodescuento"];
       setEstructuraActiva(e => {
-        setStatus(e ? "Estructura desactivada" : "Estructura aplicada al presupuesto", "success");
-        return !e;
+        const activando = !e;
+        if (activando) {
+          // Al aplicar la estructura, borrar a null esos campos en filas de título/subtotal
+          setRows(rs => rs.map(row => {
+            if (NATS_LIMPIAR.includes(row.naturaleza)) {
+              const limpio = { ...row };
+              CAMPOS_LIMPIAR.forEach(k => { limpio[k] = null; });
+              return limpio;
+            }
+            return row;
+          }));
+        }
+        setStatus(activando ? "Estructura aplicada al presupuesto" : "Estructura desactivada", "success");
+        return activando;
       });
       return;
     }
@@ -11823,7 +11838,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.12.0 (11 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.13.0 (11 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12227,7 +12242,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.12.0 (11 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.13.0 (11 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
