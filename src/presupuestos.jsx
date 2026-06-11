@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.10.2 (10 Junio 2026)
+// Versión: v2.11.0 (11 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.11.0 (11 Junio 2026) - Autocompletado referencia del grid: hasta 50 sugerencias con scroll, navegación por teclado con scroll automático y aviso "hay más…" al final para acotar la búsqueda
 //   v2.10.2 (10 Junio 2026) - Leer Elemento: requiere celda seleccionada para insertar; si no hay, muestra error
 //   v2.10.1 (10 Junio 2026) - Leer Elemento: inserta a partir de la fila de la celda seleccionada (rectángulo azul); si no, tras filas marcadas o al final
 //   v2.10.0 (10 Junio 2026) - Productos → Ver datasheet: abre el SIEPortal de Siemens con la referencia de la fila seleccionada
@@ -6870,8 +6871,10 @@ function AutocompleteReferencia({ value, onChange, onConfirm, onCancel, align })
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [hayMas, setHayMas] = useState(false);
   const skipBlur = useRef(false);
   const fetchSeq = useRef(0);
+  const LIMITE_SUG = 50;
 
   useEffect(() => {
     const txt = String(text || "").trim();
@@ -6880,7 +6883,8 @@ function AutocompleteReferencia({ value, onChange, onConfirm, onCancel, align })
     const seq = ++fetchSeq.current;
     const t = setTimeout(async () => {
       try {
-        const url = API_URL + "/productos/?busqueda=" + encodeURIComponent(txt) + "&campo=referencia&limite=5";
+        // Pedimos LIMITE_SUG+1 para saber si hay más de los que mostramos
+        const url = API_URL + "/productos/?busqueda=" + encodeURIComponent(txt) + "&campo=referencia&limite=" + (LIMITE_SUG + 1);
         const res = await fetch(url);
         if (!res.ok) throw new Error("HTTP " + res.status);
         const data = await res.json();
@@ -6892,7 +6896,8 @@ function AutocompleteReferencia({ value, onChange, onConfirm, onCancel, align })
           if (aStarts !== bStarts) return aStarts - bStarts;
           return String(a.referencia || "").localeCompare(String(b.referencia || ""));
         });
-        setSuggestions(ordenados.slice(0, 5));
+        setHayMas(ordenados.length > LIMITE_SUG);
+        setSuggestions(ordenados.slice(0, LIMITE_SUG));
         setOpen(ordenados.length > 0);
         setHighlighted(0);
       } catch {
@@ -6937,10 +6942,11 @@ function AutocompleteReferencia({ value, onChange, onConfirm, onCancel, align })
         style={{ width: "100%", border: "none", outline: "none", padding: "5px 8px", fontSize: 12, background: "#fff", textAlign: align || "left", fontFamily: "monospace" }}
       />
       {open && suggestions.length > 0 && (
-        <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 9999, background: "#fff", border: "1px solid #d4d4d4", borderRadius: 4, boxShadow: "0 4px 12px rgba(0,0,0,0.12)", minWidth: 380, maxWidth: 520, marginTop: 2 }}>
+        <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 9999, background: "#fff", border: "1px solid #d4d4d4", borderRadius: 4, boxShadow: "0 4px 12px rgba(0,0,0,0.12)", minWidth: 380, maxWidth: 520, marginTop: 2, maxHeight: 320, overflowY: "auto" }}>
           {loading && <div style={{ padding: "6px 10px", fontSize: 11, color: "#737373" }}>Buscando...</div>}
           {suggestions.map((s, i) => (
             <div key={s.id}
+              ref={i === highlighted ? (el => { if (el) el.scrollIntoView({ block: "nearest" }); }) : undefined}
               onMouseDown={() => elegir(s)}
               onMouseEnter={() => setHighlighted(i)}
               style={{
@@ -6959,6 +6965,11 @@ function AutocompleteReferencia({ value, onChange, onConfirm, onCancel, align })
               <span style={{ color: "#0369a1", fontWeight: 500, whiteSpace: "nowrap" }}>{(Number(s.pvp) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2 })} €</span>
             </div>
           ))}
+          {hayMas && (
+            <div style={{ padding: "6px 10px", fontSize: 11, color: "#92400e", background: "#fffbeb", borderTop: "1px solid #fde68a", textAlign: "center", position: "sticky", bottom: 0 }}>
+              hay más… escribe más caracteres para acotar la búsqueda
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -11771,7 +11782,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.10.2 (10 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.11.0 (11 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12001,7 +12012,7 @@ function AppInner() {
                 Al editar la columna <strong>Referencia</strong> con doble click, se activa el autocompletado conectado a la base de datos:
               </p>
               <ul style={{ color: "#475569", lineHeight: 1.7, paddingLeft: 20, marginBottom: 0 }}>
-                <li>Al teclear <strong>2 o más caracteres</strong> aparece un tooltip con hasta 5 sugerencias mostrando referencia, nombre y PVP.</li>
+                <li>Al teclear <strong>2 o más caracteres</strong> aparece un tooltip con hasta 50 sugerencias (con scroll) mostrando referencia, nombre y PVP. Si hay más, avisa para que acotes escribiendo más caracteres.</li>
                 <li>Navega con las flechas <code>↑</code>/<code>↓</code> y selecciona con <code>Enter</code>.</li>
                 <li>Al confirmar (Enter, click en sugerencia o salir del campo) se buscan los datos completos del producto.</li>
                 <li>Si la referencia existe en BD, se rellenan automáticamente: <strong>nombre, descripción, PVP, familia, subfamilia y descuento</strong> (de la subfamilia, o de la familia si no hay).</li>
@@ -12175,7 +12186,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.10.2 (10 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.11.0 (11 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
