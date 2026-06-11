@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.11.1 (11 Junio 2026)
+// Versión: v2.12.0 (11 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.12.0 (11 Junio 2026) - Leer Elemento: columnas de la lista redimensionables (arrastrar, doble clic restablece) como en Leer Producto; tooltips con el contenido completo en lista y detalle
 //   v2.11.1 (11 Junio 2026) - Menú Presupuestos: "Comparar Presupuestos" → "Comparar 2 presupuestos" y "Comprobar Presupuesto" → "Comparar presupuesto con BD"
 //   v2.11.0 (11 Junio 2026) - Autocompletado referencia del grid: hasta 50 sugerencias con scroll, navegación por teclado con scroll automático y aviso "hay más…" al final para acotar la búsqueda
 //   v2.10.2 (10 Junio 2026) - Leer Elemento: requiere celda seleccionada para insertar; si no hay, muestra error
@@ -7470,6 +7471,45 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
   const [detalle, setDetalle] = useState(null);
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
 
+  // ── Redimensión de columnas de la lista de elementos ──
+  const ANCHOS_INI = { nombre: 260, grupo: 150, fecha: 130, descripcion: 220, productos: 80, id: 60 };
+  const [anchosCol, setAnchosCol] = useState(ANCHOS_INI);
+  const resizeRef = useRef(null);
+  const onResizeCol = (e, key) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = anchosCol[key] ?? 100;
+    resizeRef.current = { key, startX, startW };
+    const onMove = (ev) => {
+      if (!resizeRef.current) return;
+      const { key: k, startX: sx, startW: sw } = resizeRef.current;
+      const nuevo = Math.max(40, sw + (ev.clientX - sx));
+      setAnchosCol(prev => ({ ...prev, [k]: nuevo }));
+    };
+    const onUp = () => {
+      resizeRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+  const Resizer = ({ colKey }) => (
+    <div
+      onMouseDown={(e) => onResizeCol(e, colKey)}
+      onDoubleClick={(e) => { e.stopPropagation(); setAnchosCol(prev => ({ ...prev, [colKey]: ANCHOS_INI[colKey] })); }}
+      title="Arrastra para redimensionar (doble clic para restablecer)"
+      onMouseEnter={e => { e.currentTarget.style.background = "#2563eb"; }}
+      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+      style={{ position: "absolute", top: 0, right: -4, width: 9, height: "100%", cursor: "col-resize", zIndex: 6, transition: "background 0.1s" }}
+    />
+  );
+
   // Elemento único seleccionado (si hay solo 1) - útil para acciones que requieren uno solo
   const seleccionado = selIds.size === 1
     ? elementos.find(e => e.id === [...selIds][0]) || null
@@ -7707,12 +7747,12 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
             <thead style={{ position: "sticky", top: 0, background: "#fafafa", zIndex: 1, borderBottom: "1px solid #e5e5e5" }}>
               <tr>
                 <th style={{ width: 32, padding: "8px 6px", color: "#171717" }}></th>
-                <th style={{ padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600, width: "32%" }}>Nombre</th>
-                <th style={{ padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>Grupo Elementos</th>
-                <th style={{ padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>Fecha modificación</th>
-                <th style={{ padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600, width: "20%" }}>Descripción</th>
-                <th style={{ padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600 }}>Productos</th>
-                <th style={{ padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600 }}>ID</th>
+                <th style={{ position: "relative", width: anchosCol.nombre, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>Nombre<Resizer colKey="nombre" /></th>
+                <th style={{ position: "relative", width: anchosCol.grupo, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>Grupo Elementos<Resizer colKey="grupo" /></th>
+                <th style={{ position: "relative", width: anchosCol.fecha, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>Fecha modificación<Resizer colKey="fecha" /></th>
+                <th style={{ position: "relative", width: anchosCol.descripcion, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>Descripción<Resizer colKey="descripcion" /></th>
+                <th style={{ position: "relative", width: anchosCol.productos, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600 }}>Productos<Resizer colKey="productos" /></th>
+                <th style={{ width: anchosCol.id, padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600 }}>ID</th>
               </tr>
             </thead>
             <tbody>
@@ -7734,12 +7774,12 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
                     <td style={{ padding: "5px 6px", textAlign: "center" }}>
                       <input type="checkbox" checked={isSel} readOnly />
                     </td>
-                    <td style={{ padding: "6px 10px", fontWeight: 500 }}>{el.nombre}</td>
-                    <td style={{ padding: "6px 10px", color: "#475569" }}>{el.grupo || grupoNombre(el.idgrupo)}</td>
+                    <td style={{ padding: "6px 10px", fontWeight: 500, maxWidth: anchosCol.nombre, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={el.nombre || ""}>{el.nombre}</td>
+                    <td style={{ padding: "6px 10px", color: "#475569", maxWidth: anchosCol.grupo, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={el.grupo || grupoNombre(el.idgrupo) || ""}>{el.grupo || grupoNombre(el.idgrupo)}</td>
                     <td style={{ padding: "6px 10px", textAlign: "center", color: "#64748b", fontSize: 11, whiteSpace: "nowrap" }}>
                       {el.fechamodificacion ? new Date(el.fechamodificacion).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "numeric" }) : "—"}
                     </td>
-                    <td style={{ padding: "6px 10px", color: "#475569" }}>{el.descripcion || "—"}</td>
+                    <td style={{ padding: "6px 10px", color: "#475569", maxWidth: anchosCol.descripcion, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={el.descripcion || ""}>{el.descripcion || "—"}</td>
                     <td style={{ padding: "6px 10px", textAlign: "center", fontWeight: 500, color: "#0369a1" }}>{el.numproductos || 0}</td>
                     <td style={{ padding: "6px 10px", textAlign: "right", fontWeight: 600, color: "#1e3a5f" }}>{el.id}</td>
                   </tr>
@@ -7799,11 +7839,11 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
                         return (
                           <tr key={p.idproducto || i} style={{ background: i % 2 === 0 ? "#fff" : "#fafafa", borderBottom: "1px solid #f1f5f9" }}>
                             <td style={{ padding: "4px 8px", textAlign: "center", color: "#475569" }}>{p.cantidad || 0}</td>
-                            <td style={{ padding: "4px 8px", color: "#1e3a5f", fontFamily: "monospace", whiteSpace: "nowrap", fontWeight: 600 }}>{p.referencia || ""}</td>
-                            <td style={{ padding: "4px 8px", color: "#171717" }}>{p.nombre || ""}</td>
+                            <td style={{ padding: "4px 8px", color: "#1e3a5f", fontFamily: "monospace", whiteSpace: "nowrap", fontWeight: 600 }} title={p.referencia || ""}>{p.referencia || ""}</td>
+                            <td style={{ padding: "4px 8px", color: "#171717" }} title={p.nombre || ""}>{p.nombre || ""}</td>
                             <td style={{ padding: "4px 8px", textAlign: "right", color: "#0369a1" }}>{(Number(p.pvp) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" })}</td>
-                            <td style={{ padding: "4px 8px", color: "#737373" }}>{p.familia || ""}</td>
-                            <td style={{ padding: "4px 8px", color: "#737373" }}>{p.subfamilia || ""}</td>
+                            <td style={{ padding: "4px 8px", color: "#737373" }} title={p.familia || ""}>{p.familia || ""}</td>
+                            <td style={{ padding: "4px 8px", color: "#737373" }} title={p.subfamilia || ""}>{p.subfamilia || ""}</td>
                             <td style={{ padding: "4px 8px", textAlign: "right", color: "#94a3b8", fontFamily: "monospace" }}>{p.idproducto}</td>
                           </tr>
                         );
@@ -11783,7 +11823,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.11.1 (11 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.12.0 (11 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12187,7 +12227,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.11.1 (11 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.12.0 (11 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
