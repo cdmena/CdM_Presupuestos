@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.14.0 (11 Junio 2026)
+// Versión: v2.14.1 (11 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.14.1 (11 Junio 2026) - Menú Presupuestos: "Crear SimpleQuote" → "Crear SimpleQuote (mail)"
 //   v2.14.0 (11 Junio 2026) - Botón con lupa en la cabecera de la columna Producto (a la izquierda del texto) que ejecuta "Buscar datos por referencia"
 //   v2.13.0 (11 Junio 2026) - Aplicar Estructura: en filas T1-T3/TT/S1-S4 se borran a null cantidad, referencia, pvp, neto unitario, coste unitario, descripción, familia, subfamilia y grupo descuento (además de ocultarlas)
 //   v2.12.0 (11 Junio 2026) - Leer Elemento: columnas de la lista redimensionables (arrastrar, doble clic restablece) como en Leer Producto; tooltips con el contenido completo en lista y detalle
@@ -3699,7 +3700,7 @@ const MENU_STRUCTURE = [
     { label: "Exportar", action: "Exportar", icon: FileUp, tooltip: "Vuelca el presupuesto actual a un fichero Excel con estilos" },
     { label: "Imprimir", action: "Imprimir", icon: Printer, tooltip: "Genera la versión imprimible del presupuesto" },
     { label: "Formato Simple Quote", action: "FormatoSimpleQuote", icon: Printer, tooltip: "Prepara el presupuesto con el formato de tabla SimpleQuote" },
-    { label: "Crear SimpleQuote", action: "CrearSimpleQuote", icon: FileSpreadsheet, tooltip: "Envía la oferta a SimpleQuote (Siemens) vía la API local" },
+    { label: "Crear SimpleQuote (mail)", action: "CrearSimpleQuote", icon: FileSpreadsheet, tooltip: "Envía la oferta a SimpleQuote (Siemens) vía la API local" },
     { label: "Hacer Damex E", action: "HacerDamexE", icon: FileSpreadsheet, tooltip: "Crea el pedido Damex E en Siemens con los datos del cliente final" },
     { label: "Resumen", action: "Resumen", icon: BarChart3, tooltip: "Muestra el resumen por familia/subfamilia con importes y márgenes" },
     { label: "Aplicar Estructura", action: "AplicarEstructura", icon: Palette, tooltip: "Aplica colores y estilos de títulos, subtotales y comentarios" },
@@ -11839,7 +11840,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.14.0 (11 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.14.1 (11 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12243,7 +12244,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.14.0 (11 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.14.1 (11 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
