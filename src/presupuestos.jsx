@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.11.0 (11 Junio 2026)
+// Versión: v2.11.1 (11 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.11.1 (11 Junio 2026) - Menú Presupuestos: "Comparar Presupuestos" → "Comparar 2 presupuestos" y "Comprobar Presupuesto" → "Comparar presupuesto con BD"
 //   v2.11.0 (11 Junio 2026) - Autocompletado referencia del grid: hasta 50 sugerencias con scroll, navegación por teclado con scroll automático y aviso "hay más…" al final para acotar la búsqueda
 //   v2.10.2 (10 Junio 2026) - Leer Elemento: requiere celda seleccionada para insertar; si no hay, muestra error
 //   v2.10.1 (10 Junio 2026) - Leer Elemento: inserta a partir de la fila de la celda seleccionada (rectángulo azul); si no, tras filas marcadas o al final
@@ -3689,7 +3690,7 @@ function TreeNode({ node, activeId, onSelect, depth = 0 }) {
 const MENU_STRUCTURE = [
   { id: "presupuesto", icon: FileText, label: "Presupuesto", tooltip: "Guardar, leer, importar/exportar y operar con presupuestos", items: [
     { label: "Guardar Presupuesto", action: "GuardarPresupuesto", icon: Save, tooltip: "Guarda el presupuesto actual (cabecera y líneas) en la base de datos" },
-    { label: "Comprobar Presupuesto", action: "ComprobarPresupuesto", icon: ClipboardCheck, tooltip: "Verifica referencias, precios y datos de las líneas contra la BD" },
+    { label: "Comparar presupuesto con BD", action: "ComprobarPresupuesto", icon: ClipboardCheck, tooltip: "Verifica referencias, precios y datos de las líneas contra la BD" },
     { label: "Leer Presupuestos", action: "LeerPresupuestos", icon: FolderOpen, tooltip: "Abre la lista de presupuestos guardados para cargar uno" },
     { label: "Importar", action: "Importar", icon: Download, tooltip: "Carga las líneas del presupuesto desde un fichero Excel" },
     { label: "Exportar", action: "Exportar", icon: FileUp, tooltip: "Vuelca el presupuesto actual a un fichero Excel con estilos" },
@@ -3700,7 +3701,7 @@ const MENU_STRUCTURE = [
     { label: "Resumen", action: "Resumen", icon: BarChart3, tooltip: "Muestra el resumen por familia/subfamilia con importes y márgenes" },
     { label: "Aplicar Estructura", action: "AplicarEstructura", icon: Palette, tooltip: "Aplica colores y estilos de títulos, subtotales y comentarios" },
     { label: "Borrar Presupuesto actual", action: "BorrarPresupuestoActual", icon: X, tooltip: "Vacía el presupuesto en pantalla (no borra el guardado en BD)" },
-    { label: "Comparar Presupuestos", action: "CompararPresupuestos", icon: Scale, tooltip: "Compara dos presupuestos línea a línea" },
+    { label: "Comparar 2 presupuestos", action: "CompararPresupuestos", icon: Scale, tooltip: "Compara dos presupuestos línea a línea" },
   ]},
   { id: "celdas", icon: Grid3x3, label: "Celdas", tooltip: "Operaciones sobre celdas y filas del grid", items: [
     { label: "Comprobar Celda", action: "ComprobarCelda", icon: Search, tooltip: "Muestra nº de caracteres, color de fondo y color de tinta de la celda seleccionada" },
@@ -11782,7 +11783,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.11.0 (11 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.11.1 (11 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12024,7 +12025,7 @@ function AppInner() {
             {[
               { id: "m-presupuesto", titulo: "Menú Presupuesto", color: "#171717", items: [
                 { op: "Guardar Presupuesto",    desc: "Guarda el presupuesto actual (cabecera y líneas) en la base de datos. Identifica el presupuesto por numerocompleto + revisión; si ya existe pregunta si sobrescribir." },
-                { op: "Comprobar Presupuesto",  desc: "Verifica las referencias, precios y datos de las líneas contra la BD y marca las diferencias encontradas." },
+                { op: "Comparar presupuesto con BD",  desc: "Verifica las referencias, precios y datos de las líneas contra la BD y marca las diferencias encontradas." },
                 { op: "Leer Presupuestos",      desc: "Abre la lista de presupuestos guardados (buscar por título, cliente o número) y carga uno (sustituye el actual). Añade 10 filas en blanco al final del presupuesto cargado." },
                 { op: "Importar",               desc: "Importa filas desde un Excel (fichero o copiar/pegar). Detecta las columnas por su nombre (acepta abreviaturas como Ref, Can, PVP, Dto). Si hay columnas ambiguas avisa con error." },
                 { op: "Exportar",               desc: "Exporta el presupuesto a Excel con todos los datos crudos. El nombre del fichero usa el numerocompleto. Las opciones de la columna Representación NO se aplican aquí." },
@@ -12035,7 +12036,7 @@ function AppInner() {
                 { op: "Resumen",                desc: "Muestra el desglose por Familia/SubFamilia con tabla y gráfico donut interactivo." },
                 { op: "Aplicar Estructura",     desc: "Activa/desactiva el modo estructura: colorea las filas según su naturaleza (estilos configurables), calcula la numeración jerárquica de apartados (T1→1, productos→1.1/1.2, T2→1.3...), persiste esa numeración en la columna Apartado y la deja vacía en S1-S4/TT/CM. En S1-S4 calcula la suma del apartado y el descuento medio. Limpia la marca de PVP caducado (rojo). Al desactivar, la numeración y etiquetas se mantienen." },
                 { op: "Borrar Presupuesto actual", desc: "Vacía todas las líneas dejando la cabecera. No borra el presupuesto guardado en la BD." },
-                { op: "Comparar Presupuestos",  desc: "Compara dos presupuestos línea a línea." },
+                { op: "Comparar 2 presupuestos",  desc: "Compara dos presupuestos línea a línea." },
               ]},
               { id: "m-celdas", titulo: "Menú Celdas", color: "#171717", items: [
                 { op: "Comprobar Celda",              desc: "Muestra el nº de caracteres, el color de fondo y el color de tinta de la celda seleccionada, con una vista previa." },
@@ -12186,7 +12187,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.11.0 (11 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.11.1 (11 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
