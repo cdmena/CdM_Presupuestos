@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.21.1 (12 Junio 2026)
+// Versión: v2.22.0 (12 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.22.0 (12 Junio 2026) - Leer Presupuestos: columnas redimensionables (arrastrar) y ordenación por Nº completo+revisión, fecha, cliente e ID (clic en cabecera, resalta columna y muestra flecha asc/desc); tooltips en celdas
 //   v2.21.1 (12 Junio 2026) - Aplicar descuentos por grupo: el descuento se inicializa con el dto actual (1 grupo) o con la media de los dtos actuales (varios grupos)
 //   v2.21.0 (12 Junio 2026) - Aplicar descuentos por grupo: selección múltiple de grupos (checkbox + seleccionar todos) para aplicar el mismo descuento a todos a la vez
 //   v2.20.1 (12 Junio 2026) - Copiar/Pegar filas: botón con icono X junto a "Pegar filas" para anular la selección copiada
@@ -5629,6 +5630,89 @@ function LeerPresupuestosDialog({ onClose, onCargar, setStatus }) {
   const [detalle, setDetalle] = useState(null);
   const [cargandoDetalle, setCargandoDetalle] = useState(false);
 
+  // ── Redimensión de columnas de la lista ──
+  const ANCHOS_INI = { numerocompleto: 150, revision: 60, fecha: 130, titulo: 240, cliente: 200, total: 110, id: 60 };
+  const [anchosCol, setAnchosCol] = useState(ANCHOS_INI);
+  const resizeRef = useRef(null);
+  const onResizeCol = (e, key) => {
+    e.preventDefault(); e.stopPropagation();
+    const startX = e.clientX;
+    const startW = anchosCol[key] ?? 100;
+    resizeRef.current = { key, startX, startW };
+    const onMove = (ev) => {
+      if (!resizeRef.current) return;
+      const { key: k, startX: sx, startW: sw } = resizeRef.current;
+      setAnchosCol(prev => ({ ...prev, [k]: Math.max(40, sw + (ev.clientX - sx)) }));
+    };
+    const onUp = () => {
+      resizeRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = ""; document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize"; document.body.style.userSelect = "none";
+  };
+  const Resizer = ({ colKey }) => (
+    <div
+      onMouseDown={(e) => onResizeCol(e, colKey)}
+      onDoubleClick={(e) => { e.stopPropagation(); setAnchosCol(prev => ({ ...prev, [colKey]: ANCHOS_INI[colKey] })); }}
+      title="Arrastra para redimensionar (doble clic para restablecer)"
+      onMouseEnter={e => { e.currentTarget.style.background = "#2563eb"; }}
+      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+      style={{ position: "absolute", top: 0, right: -4, width: 9, height: "100%", cursor: "col-resize", zIndex: 6, transition: "background 0.1s" }}
+    />
+  );
+
+  // ── Ordenación por columna ──
+  const [orden, setOrden] = useState({ col: null, dir: "asc" }); // col: numerocompleto|fecha|cliente|id
+  const ordenarPor = (col) => {
+    setOrden(o => o.col === col ? { col, dir: o.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" });
+  };
+  const FlechaOrden = ({ col }) => {
+    if (orden.col !== col) return null;
+    return <span style={{ marginLeft: 4, fontSize: 10 }}>{orden.dir === "asc" ? "▲" : "▼"}</span>;
+  };
+  const thOrden = (col, extra = {}) => ({
+    cursor: "pointer", userSelect: "none",
+    background: orden.col === col ? "#dbeafe" : "transparent",
+    ...extra,
+  });
+
+  // Presupuestos ordenados según la columna activa
+  const presupuestosOrdenados = (() => {
+    if (!orden.col) return presupuestos;
+    const arr = [...presupuestos];
+    const dir = orden.dir === "asc" ? 1 : -1;
+    const valor = (p) => {
+      switch (orden.col) {
+        case "numerocompleto":
+          return [String(p.numerocompleto || p.numero || "").toUpperCase(), Number(p.revision) || 0];
+        case "fecha":
+          return p.fecha ? new Date(p.fecha).getTime() : 0;
+        case "cliente":
+          return String(p.nombrecomun || p.razonsocial || "").toUpperCase();
+        case "id":
+          return Number(p.id) || 0;
+        default:
+          return 0;
+      }
+    };
+    arr.sort((a, b) => {
+      const va = valor(a), vb = valor(b);
+      if (Array.isArray(va)) {
+        if (va[0] < vb[0]) return -1 * dir;
+        if (va[0] > vb[0]) return 1 * dir;
+        return (va[1] - vb[1]) * dir;
+      }
+      if (va < vb) return -1 * dir;
+      if (va > vb) return 1 * dir;
+      return 0;
+    });
+    return arr;
+  })();
+
   // Cargar el detalle cuando se selecciona un presupuesto y se va a la pestaña detalle
   useEffect(() => {
     if (tab !== "detalle" || !seleccionado) { setDetalle(null); return; }
@@ -5779,13 +5863,13 @@ function LeerPresupuestosDialog({ onClose, onCargar, setStatus }) {
             <thead style={{ position: "sticky", top: 0, background: "#fafafa", zIndex: 1, borderBottom: "1px solid #e5e5e5" }}>
               <tr>
                 <th style={{ width: 32, padding: "8px 6px", color: "#171717" }}></th>
-                <th style={{ padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600, whiteSpace: "nowrap", minWidth: 140 }}>Nº Completo</th>
-                <th style={{ padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>Rev.</th>
-                <th style={{ padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>Fecha modificación</th>
-                <th style={{ padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>Título</th>
-                <th style={{ padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>Cliente</th>
-                <th style={{ padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>Total</th>
-                <th style={{ padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>ID</th>
+                <th onClick={() => ordenarPor("numerocompleto")} style={thOrden("numerocompleto", { position: "relative", width: anchosCol.numerocompleto, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" })} title="Ordenar por Nº completo y revisión">Nº Completo<FlechaOrden col="numerocompleto" /><Resizer colKey="numerocompleto" /></th>
+                <th onClick={() => ordenarPor("numerocompleto")} style={thOrden("numerocompleto", { position: "relative", width: anchosCol.revision, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" })} title="Ordenar por Nº completo y revisión">Rev.<Resizer colKey="revision" /></th>
+                <th onClick={() => ordenarPor("fecha")} style={thOrden("fecha", { position: "relative", width: anchosCol.fecha, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" })} title="Ordenar por fecha">Fecha modificación<FlechaOrden col="fecha" /><Resizer colKey="fecha" /></th>
+                <th style={{ position: "relative", width: anchosCol.titulo, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>Título<Resizer colKey="titulo" /></th>
+                <th onClick={() => ordenarPor("cliente")} style={thOrden("cliente", { position: "relative", width: anchosCol.cliente, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 })} title="Ordenar por cliente">Cliente<FlechaOrden col="cliente" /><Resizer colKey="cliente" /></th>
+                <th style={{ position: "relative", width: anchosCol.total, padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>Total<Resizer colKey="total" /></th>
+                <th onClick={() => ordenarPor("id")} style={thOrden("id", { width: anchosCol.id, padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" })} title="Ordenar por ID">ID<FlechaOrden col="id" /></th>
               </tr>
             </thead>
             <tbody>
@@ -5797,7 +5881,7 @@ function LeerPresupuestosDialog({ onClose, onCargar, setStatus }) {
                   {busqueda ? "No hay presupuestos que coincidan con la búsqueda." : "No hay presupuestos en la base de datos."}
                 </td></tr>
               )}
-              {!cargando && presupuestos.map(p => {
+              {!cargando && presupuestosOrdenados.map(p => {
                 const isSel = seleccionado?.id === p.id;
                 return (
                   <tr key={p.id}
@@ -5807,11 +5891,11 @@ function LeerPresupuestosDialog({ onClose, onCargar, setStatus }) {
                     <td style={{ padding: "5px 6px", textAlign: "center" }}>
                       <input type="radio" checked={isSel} onChange={() => setSeleccionado(p)} />
                     </td>
-                    <td style={{ padding: "6px 10px", fontWeight: 600, color: "#1e3a5f", whiteSpace: "nowrap" }}>{p.numerocompleto || p.numero}</td>
+                    <td style={{ padding: "6px 10px", fontWeight: 600, color: "#1e3a5f", whiteSpace: "nowrap", maxWidth: anchosCol.numerocompleto, overflow: "hidden", textOverflow: "ellipsis" }} title={String(p.numerocompleto || p.numero || "")}>{p.numerocompleto || p.numero}</td>
                     <td style={{ padding: "6px 10px", textAlign: "center", color: "#475569" }}>{p.revision ?? 0}</td>
                     <td style={{ padding: "6px 10px", textAlign: "center", color: "#64748b", fontSize: 11, whiteSpace: "nowrap" }}>{formatearFecha(p.fecha)}</td>
-                    <td style={{ padding: "6px 10px" }}>{p.titulo}</td>
-                    <td style={{ padding: "6px 10px", color: "#475569" }}>{p.nombrecomun || p.razonsocial}</td>
+                    <td style={{ padding: "6px 10px", maxWidth: anchosCol.titulo, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.titulo || ""}>{p.titulo}</td>
+                    <td style={{ padding: "6px 10px", color: "#475569", maxWidth: anchosCol.cliente, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={p.nombrecomun || p.razonsocial || ""}>{p.nombrecomun || p.razonsocial}</td>
                     <td style={{ padding: "6px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>{(Number(p.totalpresupuesto) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: "always" })} €</td>
                     <td style={{ padding: "6px 10px", textAlign: "right", color: "#64748b", fontFamily: "monospace", whiteSpace: "nowrap" }}>{p.id}</td>
                   </tr>
@@ -12028,7 +12112,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.21.1 (12 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.22.0 (12 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12432,7 +12516,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.21.1 (12 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.22.0 (12 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
