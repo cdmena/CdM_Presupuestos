@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.22.0 (12 Junio 2026)
+// Versión: v2.22.1 (12 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.22.1 (12 Junio 2026) - Ayuda actualizada: bloque "Lo más nuevo (versión 2.x)" en Novedades y entrada "Ver datasheet" en el menú Productos
 //   v2.22.0 (12 Junio 2026) - Leer Presupuestos: columnas redimensionables (arrastrar) y ordenación por Nº completo+revisión, fecha, cliente e ID (clic en cabecera, resalta columna y muestra flecha asc/desc); tooltips en celdas
 //   v2.21.1 (12 Junio 2026) - Aplicar descuentos por grupo: el descuento se inicializa con el dto actual (1 grupo) o con la media de los dtos actuales (varios grupos)
 //   v2.21.0 (12 Junio 2026) - Aplicar descuentos por grupo: selección múltiple de grupos (checkbox + seleccionar todos) para aplicar el mismo descuento a todos a la vez
@@ -12112,7 +12113,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.22.0 (12 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.22.1 (12 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12149,6 +12150,28 @@ function AppInner() {
               </p>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+
+                <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, padding: "14px 18px" }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1e3a5f", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+                    <Icon as={RefreshCw} size={16} color="#2563eb" /> Lo más nuevo (versión 2.x)
+                  </h3>
+                  <ul style={{ color: "#475569", lineHeight: 1.7, margin: 0, paddingLeft: 20, fontSize: 13 }}>
+                    <li><strong>Competencia ↔ Siemens:</strong> Productos → <em>Buscar equivalencia Competencia</em> (busca la referencia de competencia de la celda y muestra sus equivalentes Siemens, con botones <em>Sustituir</em>, <em>Crear nueva fila</em> y <em>Procesar fila siguiente</em>); y Otros → <em>Gestionar BD Competencia</em> (crea equivalencias 1‑a‑N entre referencias de competencia y Siemens, con comentario, tipo y confirmación de sobrescritura).</li>
+                    <li><strong>Estrategias de descuento:</strong> Descuentos → <em>Gestionar Estrategias Descuento</em> (consultar, crear, editar, borrar, <em>copiar</em> y aplicar al presupuesto conjuntos de grupo descuento + %).</li>
+                    <li><strong>Aplicar descuentos por grupo:</strong> ahora permite <strong>seleccionar varios grupos</strong> a la vez y aplicarles el mismo descuento; el valor se inicializa con el dto actual (1 grupo) o la <strong>media</strong> de los dtos (varios).</li>
+                    <li><strong>Productos → Ver datasheet:</strong> abre la hoja de datos de Siemens (SIEPortal) para la referencia de la fila seleccionada.</li>
+                    <li><strong>Leer Precios PMD:</strong> casillas para elegir qué campos leer (referencia, descripción, PVP, precio coste, grupo descuento).</li>
+                    <li><strong>Asistente de Referencias:</strong> busca automáticamente en la BD al montar la referencia y muestra la lista de productos cuya referencia empieza por ella.</li>
+                    <li><strong>Diálogos:</strong> todos se pueden <strong>mover</strong> arrastrando su zona superior (como ventanas). Varios diálogos son redimensionables.</li>
+                    <li><strong>Leer Presupuestos / Leer Elemento / Leer Producto:</strong> columnas <strong>redimensionables</strong> (arrastrar y soltar) y tooltips con el contenido completo. Leer Presupuestos además permite <strong>ordenar</strong> por Nº completo+revisión, fecha, cliente e ID (clic en cabecera, con flecha ▲/▼). Leer Producto abre el buscador con el contenido de la celda seleccionada; su lista llega hasta 50 sugerencias con aviso de "hay más".</li>
+                    <li><strong>Guardar Elemento:</strong> usa las filas de las celdas seleccionadas (rectángulo azul); admite filas de comentario (CM); si el nombre ya existe pregunta si <strong>sobrescribir</strong>.</li>
+                    <li><strong>Borrar seleccionadas:</strong> opera sobre las celdas seleccionadas (rectángulo azul) y la confirmación detalla qué filas se van a borrar.</li>
+                    <li><strong>Aplicar Estructura:</strong> en filas de título/subtotal (T1‑T3, TT, S1‑S4) se borran y ocultan los campos de datos (cantidad, referencia, PVP, netos, coste, descripción, familia, subfamilia, grupo descuento).</li>
+                    <li><strong>Mantenimiento BD:</strong> nuevos apartados para importar desde Excel <em>detalle de descuentos</em> y <em>productos de competencia</em>, además de un botón para crear estrategias.</li>
+                    <li><strong>Barra de estado:</strong> indica automáticamente cuándo se está <strong>consultando o guardando en la base de datos</strong> y cuándo ha respondido, para que no parezca que la app se ha quedado bloqueada.</li>
+                    <li><strong>Botón con lupa</strong> en la cabecera de la columna Producto para lanzar "Buscar datos por referencia".</li>
+                  </ul>
+                </div>
 
                 <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "14px 18px" }}>
                   <h3 style={{ fontSize: 14, fontWeight: 700, color: "#1e3a5f", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
@@ -12391,6 +12414,7 @@ function AppInner() {
                 { op: "Buscar equivalencia Competencia", desc: "Busca el producto de competencia equivalente a la referencia." },
                 { op: "Calcular PVP a partir de GA", desc: "Calcula el PVP a partir del precio de coste GA y el margen." },
                 { op: "Asistente Referencias",       desc: "Asistente para completar y corregir referencias." },
+                { op: "Ver datasheet",               desc: "Abre la hoja de datos de Siemens (SIEPortal) para la referencia de la fila seleccionada, en una pestaña nueva del navegador." },
               ]},
               { id: "m-clientes", titulo: "Menú Clientes", color: "#171717", items: [
                 { op: "Gestionar Clientes",     desc: "Tabla de clientes editable: crear, editar (cualquier campo salvo el ID), copiar y borrar. El borrado se bloquea si el cliente está en algún presupuesto o tiene contactos. El código postal se muestra siempre con 5 cifras (ceros a la izquierda)." },
@@ -12516,7 +12540,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.22.0 (12 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.22.1 (12 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
