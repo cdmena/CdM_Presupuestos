@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.14.1 (11 Junio 2026)
+// Versión: v2.15.0 (12 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.15.0 (12 Junio 2026) - Indicador global de actividad con la BD: interceptor de fetch que muestra "Consultando/Guardando ... en la base de datos" antes de cada llamada y "Datos leídos correctamente" al responder (cubre todas las consultas)
 //   v2.14.1 (11 Junio 2026) - Menú Presupuestos: "Crear SimpleQuote" → "Crear SimpleQuote (mail)"
 //   v2.14.0 (11 Junio 2026) - Botón con lupa en la cabecera de la columna Producto (a la izquierda del texto) que ejecuta "Buscar datos por referencia"
 //   v2.13.0 (11 Junio 2026) - Aplicar Estructura: en filas T1-T3/TT/S1-S4 se borran a null cantidad, referencia, pvp, neto unitario, coste unitario, descripción, familia, subfamilia y grupo descuento (además de ocultarlas)
@@ -235,6 +236,64 @@ const BtnContent = ({ icon, children, iconColor, iconSize = 14 }) => (
 const API_URL = "https://presupuestos-api-x11d.onrender.com"
 // URL de la API local (CdM_Presupuestos_API_local.py): unifica funciones de PMD y crear_sq
 const API_LOCAL_URL = "http://127.0.0.1:8000";
+
+// ── Indicador global de actividad con la BD ──
+// Un "puente" que el componente App rellena con su setStatus, para que el
+// interceptor de fetch pueda avisar en la barra de estado en cada consulta.
+const bdBridge = { setStatus: null, activas: 0 };
+
+// Traduce una URL de la API a un nombre legible de tabla/operación
+function nombreTablaDesdeURL(url) {
+  try {
+    const path = url.replace(API_URL, "").split("?")[0];
+    const partes = path.split("/").filter(Boolean);
+    if (partes.length === 0) return "la base de datos";
+    const mapa = {
+      presupuestos: "presupuestos", detallepresupuestos: "detalle de presupuestos",
+      clientes: "clientes", contactos: "contactos", productos: "productos",
+      elementos: "elementos", gruposelementos: "grupos de elementos",
+      subfamilias: "subfamilias", familias: "familias", naturaleza: "naturaleza",
+      representacion: "representación", gruposdescuento: "grupos de descuento",
+      descuentos: "estrategias de descuento", usuarios: "usuarios", logs: "logs",
+      provincias: "provincias", paises: "países", integridad: "integridad",
+      competencia: "competencia", asistentes: "asistente",
+    };
+    return mapa[partes[0]] || partes[0];
+  } catch {
+    return "la base de datos";
+  }
+}
+
+// Interceptar window.fetch una sola vez (a nivel de módulo)
+if (typeof window !== "undefined" && !window.__bdFetchPatched) {
+  window.__bdFetchPatched = true;
+  const originalFetch = window.fetch.bind(window);
+  window.fetch = (input, init) => {
+    const url = typeof input === "string" ? input : (input && input.url) || "";
+    const esBD = typeof url === "string" && url.indexOf(API_URL) === 0;
+    if (esBD && bdBridge.setStatus) {
+      const metodo = ((init && init.method) || "GET").toUpperCase();
+      const tabla = nombreTablaDesdeURL(url);
+      const verbo = metodo === "GET" ? "Consultando" : metodo === "DELETE" ? "Borrando en" : metodo === "POST" ? "Guardando en" : "Actualizando";
+      bdBridge.activas++;
+      bdBridge.setStatus(`${verbo} ${tabla} en la base de datos...`, "working");
+      return originalFetch(input, init)
+        .then((res) => {
+          bdBridge.activas = Math.max(0, bdBridge.activas - 1);
+          if (bdBridge.activas === 0 && bdBridge.setStatus) {
+            bdBridge.setStatus(res.ok ? `Datos de ${tabla} leídos correctamente` : `Respuesta de ${tabla} (estado ${res.status})`, res.ok ? "success" : "error");
+          }
+          return res;
+        })
+        .catch((err) => {
+          bdBridge.activas = Math.max(0, bdBridge.activas - 1);
+          if (bdBridge.setStatus) bdBridge.setStatus(`Error al conectar con la base de datos (${tabla})`, "error");
+          throw err;
+        });
+    }
+    return originalFetch(input, init);
+  };
+}
 
 // ── Pantalla de Opciones ──
 const FUENTES_DISPONIBLES = [
@@ -10523,6 +10582,12 @@ function AppInner() {
     }
   }, []);
 
+  // Conectar setStatus al puente global para que el interceptor de fetch avise en cada consulta a la BD
+  useEffect(() => {
+    bdBridge.setStatus = setStatus;
+    return () => { bdBridge.setStatus = null; };
+  }, [setStatus]);
+
   // Cargar descripciones de grupos descuento, familias y subfamilias (para tooltips del grid)
   useEffect(() => {
     const norm = s => String(s || "").trim().toUpperCase();
@@ -11840,7 +11905,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.14.1 (11 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.15.0 (12 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12244,7 +12309,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.14.1 (11 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.15.0 (12 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
