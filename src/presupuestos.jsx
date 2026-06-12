@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.15.0 (12 Junio 2026)
+// Versión: v2.16.0 (12 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.16.0 (12 Junio 2026) - Guardar Elemento: si el nombre ya existe, pregunta si sobrescribir o cancelar (PUT al elemento existente) en vez de dar solo error
 //   v2.15.0 (12 Junio 2026) - Indicador global de actividad con la BD: interceptor de fetch que muestra "Consultando/Guardando ... en la base de datos" antes de cada llamada y "Datos leídos correctamente" al responder (cubre todas las consultas)
 //   v2.14.1 (11 Junio 2026) - Menú Presupuestos: "Crear SimpleQuote" → "Crear SimpleQuote (mail)"
 //   v2.14.0 (11 Junio 2026) - Botón con lupa en la cabecera de la columna Producto (a la izquierda del texto) que ejecuta "Buscar datos por referencia"
@@ -7370,14 +7371,23 @@ function GuardarElementoDialog({ filasSeleccionadas, onClose, setStatus }) {
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState(null);
   const [resultado, setResultado] = useState(null); // datos devueltos por el backend tras guardar
+  const [confirmSobreescribir, setConfirmSobreescribir] = useState(false); // pregunta si ya existe
 
   // Solo productos válidos para guardar
   const productos = filasSeleccionadas.filter(f =>
     ["PD","PE","E"].includes(f.naturaleza) && f.referencia
   );
 
+  const construirPayload = () => ({
+    nombre: nombre.trim(),
+    descripcion: descripcion.trim(),
+    idgrupo: 1,
+    productos: productos.map(p => ({ referencia: p.referencia, cantidadproducto: p.cantidad || 1 })),
+  });
+
   const guardar = async () => {
     setError(null);
+    setConfirmSobreescribir(false);
     if (!nombre.trim()) {
       setError("Indica un nombre para el elemento");
       return;
@@ -7392,13 +7402,15 @@ function GuardarElementoDialog({ filasSeleccionadas, onClose, setStatus }) {
       const res = await fetch(`${API_URL}/elementos/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          nombre: nombre.trim(),
-          descripcion: descripcion.trim(),
-          idgrupo: 1,
-          productos: productos.map(p => ({ referencia: p.referencia, cantidadproducto: p.cantidad || 1 })),
-        }),
+        body: JSON.stringify(construirPayload()),
       });
+      if (res.status === 409) {
+        // Ya existe un elemento con ese nombre → preguntar si sobrescribir
+        setGuardando(false);
+        setConfirmSobreescribir(true);
+        setStatus && setStatus(`Ya existe un elemento llamado "${nombre.trim()}"`, "info");
+        return;
+      }
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         throw new Error(err?.detail || `Error ${res.status}`);
@@ -7409,6 +7421,42 @@ function GuardarElementoDialog({ filasSeleccionadas, onClose, setStatus }) {
     } catch (e) {
       setError(e.message);
       setStatus && setStatus("Error guardando elemento: " + e.message, "error");
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const sobreescribir = async () => {
+    setConfirmSobreescribir(false);
+    setError(null);
+    setGuardando(true);
+    setStatus && setStatus(`Sobrescribiendo elemento "${nombre.trim()}"...`, "working");
+    try {
+      // 1) Localizar el id del elemento existente por nombre exacto
+      const resBuscar = await fetch(`${API_URL}/elementos/?busqueda=${encodeURIComponent(nombre.trim())}`);
+      const lista = resBuscar.ok ? await resBuscar.json() : [];
+      const existente = (Array.isArray(lista) ? lista : []).find(
+        el => String(el.nombre || "").trim().toLowerCase() === nombre.trim().toLowerCase()
+      );
+      if (!existente) {
+        throw new Error("No se encontró el elemento existente para sobrescribir");
+      }
+      // 2) PUT para actualizar (reemplaza cabecera y productos)
+      const res = await fetch(`${API_URL}/elementos/${existente.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(construirPayload()),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => null);
+        throw new Error(err?.detail || `Error ${res.status}`);
+      }
+      const data = await res.json();
+      setResultado(data);
+      setStatus && setStatus(`Elemento "${nombre}" sobrescrito con ${data.productos_insertados} productos`, "success");
+    } catch (e) {
+      setError(e.message);
+      setStatus && setStatus("Error sobrescribiendo elemento: " + e.message, "error");
     } finally {
       setGuardando(false);
     }
@@ -7462,6 +7510,22 @@ function GuardarElementoDialog({ filasSeleccionadas, onClose, setStatus }) {
               ))}
             </div>
           </div>
+
+          {confirmSobreescribir && (
+            <div style={{ background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 6, padding: "12px 14px", fontSize: 13, color: "#92400e", marginBottom: 12 }}>
+              <div style={{ marginBottom: 10 }}>
+                Ya existe un elemento llamado <strong>"{nombre.trim()}"</strong>. ¿Quieres sobrescribirlo con las líneas seleccionadas?
+              </div>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setConfirmSobreescribir(false)} style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 12 }}>
+                  <BtnContent icon={X}>Cancelar</BtnContent>
+                </button>
+                <button onClick={sobreescribir} disabled={guardando} style={{ padding: "6px 16px", borderRadius: 6, border: "none", background: "#ea580c", color: "#fff", cursor: guardando ? "default" : "pointer", fontSize: 12, fontWeight: 600 }}>
+                  <BtnContent icon={guardando ? RefreshCw : Save} iconColor="#fff">{guardando ? "Sobrescribiendo..." : "Sobrescribir"}</BtnContent>
+                </button>
+              </div>
+            </div>
+          )}
 
           {error && (
             <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 6, padding: "8px 12px", fontSize: 12, color: "#991b1b", marginBottom: 12 }}>
@@ -11905,7 +11969,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.15.0 (12 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.16.0 (12 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12309,7 +12373,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.15.0 (12 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.16.0 (12 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
