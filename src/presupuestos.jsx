@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.18.0 (12 Junio 2026)
+// Versión: v2.19.1 (12 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.19.1 (12 Junio 2026) - Leer Producto: el campo buscar se abre con el contenido de la celda seleccionada (la columna que sea), no con la referencia de la fila
+//   v2.19.0 (12 Junio 2026) - Leer Producto: el campo buscar se abre con la referencia de la fila de la celda seleccionada
 //   v2.18.0 (12 Junio 2026) - Guardar Elemento: las filas de comentario (CM) también forman parte del elemento (se guardan como líneas comentario, manteniendo el orden); vista previa las muestra
 //   v2.17.0 (12 Junio 2026) - Guardar Elemento: usa las filas de las celdas seleccionadas (rectángulo azul/selectionRange), con fallback a celda activa o filas marcadas
 //   v2.16.0 (12 Junio 2026) - Guardar Elemento: si el nombre ya existe, pregunta si sobrescribir o cancelar (PUT al elemento existente) en vez de dar solo error
@@ -7044,8 +7046,8 @@ function AutocompleteReferencia({ value, onChange, onConfirm, onCancel, align })
 }
 
 // ── Diálogo Leer Producto ──
-function LeerProductoDialog({ onClose, onInsertar, setStatus }) {
-  const [busqueda, setBusqueda] = useState("");
+function LeerProductoDialog({ onClose, onInsertar, setStatus, busquedaInicial }) {
+  const [busqueda, setBusqueda] = useState(busquedaInicial || "");
   const [campo, setCampo] = useState("referencia"); // "referencia" o "todos"
   const [productos, setProductos] = useState([]);
   const [hayMas, setHayMas] = useState(false); // true si el servidor pudo devolver el límite máximo
@@ -12001,7 +12003,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.18.0 (12 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.19.1 (12 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12405,7 +12407,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.18.0 (12 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.19.1 (12 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
@@ -13441,6 +13443,13 @@ function AppInner() {
       {showLeerProducto && (
         <LeerProductoDialog
           setStatus={setStatus}
+          busquedaInicial={(() => {
+            if (!selectedCell) return "";
+            const row = rows.find(r => r.id === selectedCell.rowId);
+            if (!row) return "";
+            const val = row[selectedCell.colKey];
+            return val != null ? String(val).trim() : "";
+          })()}
           onClose={() => setShowLeerProducto(false)}
           onInsertar={(prod) => {
             // Construye los datos del producto (sin id, para usar al rellenar o insertar)
