@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.16.0 (12 Junio 2026)
+// Versión: v2.18.0 (12 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.18.0 (12 Junio 2026) - Guardar Elemento: las filas de comentario (CM) también forman parte del elemento (se guardan como líneas comentario, manteniendo el orden); vista previa las muestra
+//   v2.17.0 (12 Junio 2026) - Guardar Elemento: usa las filas de las celdas seleccionadas (rectángulo azul/selectionRange), con fallback a celda activa o filas marcadas
 //   v2.16.0 (12 Junio 2026) - Guardar Elemento: si el nombre ya existe, pregunta si sobrescribir o cancelar (PUT al elemento existente) en vez de dar solo error
 //   v2.15.0 (12 Junio 2026) - Indicador global de actividad con la BD: interceptor de fetch que muestra "Consultando/Guardando ... en la base de datos" antes de cada llamada y "Datos leídos correctamente" al responder (cubre todas las consultas)
 //   v2.14.1 (11 Junio 2026) - Menú Presupuestos: "Crear SimpleQuote" → "Crear SimpleQuote (mail)"
@@ -7373,16 +7375,23 @@ function GuardarElementoDialog({ filasSeleccionadas, onClose, setStatus }) {
   const [resultado, setResultado] = useState(null); // datos devueltos por el backend tras guardar
   const [confirmSobreescribir, setConfirmSobreescribir] = useState(false); // pregunta si ya existe
 
-  // Solo productos válidos para guardar
-  const productos = filasSeleccionadas.filter(f =>
-    ["PD","PE","E"].includes(f.naturaleza) && f.referencia
+  // Líneas válidas para el elemento: productos (PD/PE/E con referencia) y comentarios (CM)
+  const lineas = filasSeleccionadas.filter(f =>
+    (["PD", "PE", "E"].includes(f.naturaleza) && f.referencia) || f.naturaleza === "CM"
   );
+  // Para los mensajes y validaciones
+  const productos = lineas.filter(f => ["PD", "PE", "E"].includes(f.naturaleza) && f.referencia);
+  const comentarios = lineas.filter(f => f.naturaleza === "CM");
 
   const construirPayload = () => ({
     nombre: nombre.trim(),
     descripcion: descripcion.trim(),
     idgrupo: 1,
-    productos: productos.map(p => ({ referencia: p.referencia, cantidadproducto: p.cantidad || 1 })),
+    productos: lineas.map(p => (
+      p.naturaleza === "CM"
+        ? { es_comentario: true, texto: p.nombre || "", cantidadproducto: 0 }
+        : { referencia: p.referencia, cantidadproducto: p.cantidad || 1 }
+    )),
   });
 
   const guardar = async () => {
@@ -7495,18 +7504,27 @@ function GuardarElementoDialog({ filasSeleccionadas, onClose, setStatus }) {
               style={{ width: "100%", padding: "7px 10px", fontSize: 12, borderRadius: 4, border: "1px solid #cbd5e1", background: "#f8fafc", minHeight: 60, resize: "vertical", fontFamily: "inherit" }} />
           </div>
 
-          {/* Vista previa de productos */}
+          {/* Vista previa de líneas */}
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "#1e3a5f", marginBottom: 6 }}>Productos a guardar:</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "#1e3a5f", marginBottom: 6 }}>
+              Líneas a guardar: {productos.length} producto{productos.length !== 1 ? "s" : ""}{comentarios.length > 0 ? ` · ${comentarios.length} comentario${comentarios.length !== 1 ? "s" : ""}` : ""}
+            </div>
             <div style={{ maxHeight: 150, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 4, fontSize: 11 }}>
-              {productos.length === 0 ? (
-                <div style={{ padding: "12px", textAlign: "center", color: "#94a3b8" }}>No hay filas con referencia válida</div>
-              ) : productos.map((p, i) => (
-                <div key={i} style={{ padding: "5px 10px", display: "flex", gap: 12, borderBottom: "1px solid #f1f5f9", background: i % 2 === 0 ? "#fff" : "#f8fafc" }}>
-                  <span style={{ fontWeight: 500, color: "#1e3a5f", minWidth: 80, textAlign: "center" }}>{p.cantidad || 1} ×</span>
-                  <strong style={{ color: "#1e3a5f", minWidth: 150 }}>{p.referencia}</strong>
-                  <span style={{ color: "#475569", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nombre}</span>
-                </div>
+              {lineas.length === 0 ? (
+                <div style={{ padding: "12px", textAlign: "center", color: "#94a3b8" }}>No hay filas válidas seleccionadas</div>
+              ) : lineas.map((p, i) => (
+                p.naturaleza === "CM" ? (
+                  <div key={i} style={{ padding: "5px 10px", display: "flex", gap: 12, borderBottom: "1px solid #f1f5f9", background: "#fffbeb" }}>
+                    <span style={{ fontWeight: 600, color: "#92400e", minWidth: 80, textAlign: "center" }}>CM</span>
+                    <span style={{ color: "#92400e", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontStyle: "italic" }}>{p.nombre || "(comentario vacío)"}</span>
+                  </div>
+                ) : (
+                  <div key={i} style={{ padding: "5px 10px", display: "flex", gap: 12, borderBottom: "1px solid #f1f5f9", background: i % 2 === 0 ? "#fff" : "#f8fafc" }}>
+                    <span style={{ fontWeight: 500, color: "#1e3a5f", minWidth: 80, textAlign: "center" }}>{p.cantidad || 1} ×</span>
+                    <strong style={{ color: "#1e3a5f", minWidth: 150 }}>{p.referencia}</strong>
+                    <span style={{ color: "#475569", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.nombre}</span>
+                  </div>
+                )
               ))}
             </div>
           </div>
@@ -10618,6 +10636,7 @@ function AppInner() {
   const [showBorrarVacias, setShowBorrarVacias] = useState(false);
   const [infoCeldaDialog, setInfoCeldaDialog] = useState(null); // { caracteres, bg, color, colKey, fila } | null
   const [showGuardarElem, setShowGuardarElem] = useState(false);
+  const [idsElemento, setIdsElemento] = useState(new Set());
   const [showLeerElem, setShowLeerElem] = useState(false);
   const [showLeerProducto, setShowLeerProducto] = useState(false);
   const [showAsistente, setShowAsistente] = useState(false);
@@ -11271,10 +11290,23 @@ function AppInner() {
       return;
     }
     if (action === "GuardarElemento") {
-      if (selectedRows.size === 0) {
-        setStatus("Selecciona al menos una fila con un producto para guardar como elemento", "error");
+      // Filas a guardar: las del rectángulo azul (selectionRange), o la celda activa,
+      // o, en su defecto, las filas marcadas con checkbox.
+      const idsSel = new Set();
+      if (selectionRange) {
+        const r1 = Math.min(selectionRange.startRowIdx, selectionRange.endRowIdx);
+        const r2 = Math.max(selectionRange.startRowIdx, selectionRange.endRowIdx);
+        for (let i = r1; i <= r2; i++) { if (rows[i]) idsSel.add(rows[i].id); }
+      } else if (selectedCell) {
+        idsSel.add(selectedCell.rowId);
+      } else if (selectedRows.size > 0) {
+        selectedRows.forEach(id => idsSel.add(id));
+      }
+      if (idsSel.size === 0) {
+        setStatus("Selecciona las celdas (rectángulo azul) de las filas que formarán el elemento", "error");
         return;
       }
+      setIdsElemento(idsSel);
       setShowGuardarElem(true);
       return;
     }
@@ -11969,7 +12001,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.16.0 (12 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.18.0 (12 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12373,7 +12405,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.16.0 (12 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.18.0 (12 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
@@ -13394,7 +13426,7 @@ function AppInner() {
       )}
       {showGuardarElem && (
         <GuardarElementoDialog
-          filasSeleccionadas={rows.filter(r => selectedRows.has(r.id))}
+          filasSeleccionadas={rows.filter(r => idsElemento.has(r.id))}
           setStatus={setStatus}
           onClose={() => setShowGuardarElem(false)}
         />
