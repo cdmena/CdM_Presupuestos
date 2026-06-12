@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.20.1 (12 Junio 2026)
+// Versión: v2.21.1 (12 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.21.1 (12 Junio 2026) - Aplicar descuentos por grupo: el descuento se inicializa con el dto actual (1 grupo) o con la media de los dtos actuales (varios grupos)
+//   v2.21.0 (12 Junio 2026) - Aplicar descuentos por grupo: selección múltiple de grupos (checkbox + seleccionar todos) para aplicar el mismo descuento a todos a la vez
 //   v2.20.1 (12 Junio 2026) - Copiar/Pegar filas: botón con icono X junto a "Pegar filas" para anular la selección copiada
 //   v2.20.0 (12 Junio 2026) - Borrar seleccionadas: usa el rectángulo azul (no checkbox); error si no hay selección; confirmación detallada con nº de fila, posición, referencia, producto y contenido de la celda seleccionada
 //   v2.19.2 (12 Junio 2026) - Guardar Elemento: requiere selección de celdas (rectángulo azul o celda activa); sin selección da error (ya no usa filas marcadas con checkbox)
@@ -5458,29 +5460,48 @@ function AplicarDescuentosDialog({ rows, onClose, onApply }) {
       .sort((a, b) => b.importeNeto - a.importeNeto);
   })();
 
-  const [seleccionada, setSeleccionada] = useState(null);
+  const [seleccionadas, setSeleccionadas] = useState([]); // claves "grupo||dto" seleccionadas
   const [nuevoDto, setNuevoDto] = useState("");
 
-  // Cuando cambia la selección, inicializar el descuento con el actual
+  const claveDe = (g) => g.grupodescuento + "||" + g.dtoActual;
+  const estaSel = (g) => seleccionadas.includes(claveDe(g));
+  const toggleSel = (g) => {
+    const k = claveDe(g);
+    setSeleccionadas(prev => prev.includes(k) ? prev.filter(x => x !== k) : [...prev, k]);
+  };
+  const todasSel = grupos.length > 0 && grupos.every(g => seleccionadas.includes(claveDe(g)));
+  const toggleTodas = () => {
+    if (todasSel) setSeleccionadas([]);
+    else setSeleccionadas(grupos.map(claveDe));
+  };
+  const gruposSeleccionados = grupos.filter(estaSel);
+
+  // Inicializar el descuento al cambiar la selección:
+  // - 1 grupo → su dto actual; - varios → media de sus dtos actuales; - ninguno → vacío
   useEffect(() => {
-    if (seleccionada) {
-      setNuevoDto(String(seleccionada.dtoActual));
-    } else {
+    if (gruposSeleccionados.length === 0) {
       setNuevoDto("");
+    } else if (gruposSeleccionados.length === 1) {
+      setNuevoDto(String(gruposSeleccionados[0].dtoActual));
+    } else {
+      const media = gruposSeleccionados.reduce((s, g) => s + (Number(g.dtoActual) || 0), 0) / gruposSeleccionados.length;
+      // Redondear a 2 decimales
+      setNuevoDto(String(Math.round(media * 100) / 100));
     }
-  }, [seleccionada]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seleccionadas]);
 
   const fmt = (n) => (n || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   const aplicar = () => {
-    if (!seleccionada) return;
+    if (gruposSeleccionados.length === 0) return;
     const dto = parseFloat(String(nuevoDto).replace(",", "."));
     if (isNaN(dto) || dto < -100 || dto > 100) {
       alert("Introduce un descuento válido entre -100 y 100 (negativo = recargo)");
       return;
     }
-    // Aplica a las líneas con ese grupo descuento Y ese descuento actual
-    onApply(seleccionada.grupodescuento, seleccionada.dtoActual, dto);
+    // Aplica el mismo descuento a cada grupo seleccionado (por grupo + dto actual)
+    gruposSeleccionados.forEach(g => onApply(g.grupodescuento, g.dtoActual, dto));
     onClose();
   };
 
@@ -5508,7 +5529,9 @@ function AplicarDescuentosDialog({ rows, onClose, onApply }) {
               <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                 <thead style={{ position: "sticky", top: 0, background: "#fafafa", zIndex: 1, borderBottom: "1px solid #e5e5e5" }}>
                   <tr>
-                    <th style={{ width: 32, padding: "7px 8px", color: "#171717" }}></th>
+                    <th style={{ width: 32, padding: "7px 8px", color: "#171717", textAlign: "center" }}>
+                      <input type="checkbox" checked={todasSel} onChange={toggleTodas} title="Seleccionar todos" />
+                    </th>
                     <th style={{ padding: "7px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>Grupo Descuento</th>
                     <th style={{ padding: "7px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>Familia</th>
                     <th style={{ padding: "7px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>SubFamilia</th>
@@ -5521,13 +5544,13 @@ function AplicarDescuentosDialog({ rows, onClose, onApply }) {
                 </thead>
                 <tbody>
                   {grupos.map((g, i) => {
-                    const isSel = seleccionada && seleccionada.grupodescuento === g.grupodescuento && seleccionada.dtoActual === g.dtoActual;
+                    const isSel = estaSel(g);
                     return (
                       <tr key={i}
-                        onClick={() => setSeleccionada(g)}
+                        onClick={() => toggleSel(g)}
                         style={{ background: isSel ? "#dbeafe" : (i % 2 === 0 ? "#fff" : "#f8fafc"), cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
                         <td style={{ padding: "5px 8px", textAlign: "center" }}>
-                          <input type="radio" checked={isSel} onChange={() => setSeleccionada(g)} />
+                          <input type="checkbox" checked={isSel} onChange={() => toggleSel(g)} onClick={e => e.stopPropagation()} />
                         </td>
                         <td style={{ padding: "6px 10px", fontWeight: 600, color: "#1e3a5f" }}>{g.grupodescuento}</td>
                         <td style={{ padding: "6px 10px" }}>{g.familia}</td>
@@ -5557,10 +5580,14 @@ function AplicarDescuentosDialog({ rows, onClose, onApply }) {
         </div>
 
         {/* Descuento a aplicar */}
-        {seleccionada && (
+        {gruposSeleccionados.length > 0 && (
           <div style={{ background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 6, padding: "12px 14px", marginBottom: 12 }}>
             <div style={{ fontSize: 12, color: "#1e3a5f", marginBottom: 8 }}>
-              Grupo seleccionado: <strong>{seleccionada.grupodescuento}</strong> con dto. actual <strong>{fmt(seleccionada.dtoActual)}%</strong> ({seleccionada.lineas} línea{seleccionada.lineas !== 1 ? "s" : ""})
+              {gruposSeleccionados.length === 1 ? (
+                <>Grupo seleccionado: <strong>{gruposSeleccionados[0].grupodescuento}</strong> con dto. actual <strong>{fmt(gruposSeleccionados[0].dtoActual)}%</strong> ({gruposSeleccionados[0].lineas} línea{gruposSeleccionados[0].lineas !== 1 ? "s" : ""})</>
+              ) : (
+                <><strong>{gruposSeleccionados.length}</strong> grupos seleccionados ({gruposSeleccionados.reduce((s, g) => s + g.lineas, 0)} líneas en total). Se aplicará el mismo descuento a todos. <span style={{ color: "#64748b" }}>(El valor inicial es la media de sus descuentos actuales.)</span></>
+              )}
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <label style={{ fontSize: 12, fontWeight: 600, color: "#1e3a5f" }}>Nuevo descuento:</label>
@@ -5571,9 +5598,6 @@ function AplicarDescuentosDialog({ rows, onClose, onApply }) {
                 autoFocus
                 style={{ width: 90, padding: "5px 8px", fontSize: 13, borderRadius: 4, border: "1px solid #cbd5e1", textAlign: "right", background: "#fff" }} />
               <span style={{ fontSize: 13, color: "#475569" }}>%</span>
-              <span style={{ fontSize: 11, color: "#64748b", marginLeft: 8 }}>
-                (actualmente {fmt(seleccionada.dtoActual)}%)
-              </span>
             </div>
           </div>
         )}
@@ -5581,9 +5605,9 @@ function AplicarDescuentosDialog({ rows, onClose, onApply }) {
         {/* Botones */}
         <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 12, paddingTop: 12, borderTop: "1px solid #e2e8f0" }}>
           <button onClick={onClose} style={{ padding: "7px 14px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 12 }}><BtnContent icon={X}>Cancelar</BtnContent></button>
-          <button onClick={aplicar} disabled={!seleccionada || nuevoDto === ""}
-            style={{ padding: "7px 20px", borderRadius: 6, border: "none", background: (seleccionada && nuevoDto !== "") ? "#16a34a" : "#cbd5e1", color: "#fff", cursor: (seleccionada && nuevoDto !== "") ? "pointer" : "default", fontSize: 12, fontWeight: 600 }}>
-            Aplicar descuento
+          <button onClick={aplicar} disabled={gruposSeleccionados.length === 0 || nuevoDto === ""}
+            style={{ padding: "7px 20px", borderRadius: 6, border: "none", background: (gruposSeleccionados.length > 0 && nuevoDto !== "") ? "#16a34a" : "#cbd5e1", color: "#fff", cursor: (gruposSeleccionados.length > 0 && nuevoDto !== "") ? "pointer" : "default", fontSize: 12, fontWeight: 600 }}>
+            Aplicar descuento{gruposSeleccionados.length > 1 ? ` a ${gruposSeleccionados.length} grupos` : ""}
           </button>
         </div>
       </div>
@@ -12004,7 +12028,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.20.1 (12 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.21.1 (12 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12408,7 +12432,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.20.1 (12 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.21.1 (12 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
