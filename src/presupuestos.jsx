@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.19.1 (12 Junio 2026)
+// Versión: v2.20.1 (12 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,9 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.20.1 (12 Junio 2026) - Copiar/Pegar filas: botón con icono X junto a "Pegar filas" para anular la selección copiada
+//   v2.20.0 (12 Junio 2026) - Borrar seleccionadas: usa el rectángulo azul (no checkbox); error si no hay selección; confirmación detallada con nº de fila, posición, referencia, producto y contenido de la celda seleccionada
+//   v2.19.2 (12 Junio 2026) - Guardar Elemento: requiere selección de celdas (rectángulo azul o celda activa); sin selección da error (ya no usa filas marcadas con checkbox)
 //   v2.19.1 (12 Junio 2026) - Leer Producto: el campo buscar se abre con el contenido de la celda seleccionada (la columna que sea), no con la referencia de la fila
 //   v2.19.0 (12 Junio 2026) - Leer Producto: el campo buscar se abre con la referencia de la fila de la celda seleccionada
 //   v2.18.0 (12 Junio 2026) - Guardar Elemento: las filas de comentario (CM) también forman parte del elemento (se guardan como líneas comentario, manteniendo el orden); vista previa las muestra
@@ -10596,6 +10599,7 @@ function AppInner() {
   const [modal, setModal] = useState(null);
   const [numFilas, setNumFilas] = useState(1);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [filasABorrar, setFilasABorrar] = useState([]); // [{id, idx, posicion, nombre, referencia}]
   const [confirmClearRows, setConfirmClearRows] = useState(false);
   const [vista, setVista] = useState("grid");
   const [donutTooltip, setDonutTooltip] = useState(null);
@@ -11292,8 +11296,7 @@ function AppInner() {
       return;
     }
     if (action === "GuardarElemento") {
-      // Filas a guardar: las del rectángulo azul (selectionRange), o la celda activa,
-      // o, en su defecto, las filas marcadas con checkbox.
+      // Filas a guardar: las del rectángulo azul (selectionRange) o la celda activa.
       const idsSel = new Set();
       if (selectionRange) {
         const r1 = Math.min(selectionRange.startRowIdx, selectionRange.endRowIdx);
@@ -11301,8 +11304,6 @@ function AppInner() {
         for (let i = r1; i <= r2; i++) { if (rows[i]) idsSel.add(rows[i].id); }
       } else if (selectedCell) {
         idsSel.add(selectedCell.rowId);
-      } else if (selectedRows.size > 0) {
-        selectedRows.forEach(id => idsSel.add(id));
       }
       if (idsSel.size === 0) {
         setStatus("Selecciona las celdas (rectángulo azul) de las filas que formarán el elemento", "error");
@@ -12003,7 +12004,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.19.1 (12 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.20.1 (12 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12407,7 +12408,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.19.1 (12 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.20.1 (12 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
@@ -13007,10 +13008,41 @@ function AppInner() {
                     <BtnContent icon={Check} iconColor={(!selectionRange && !selectedCell) ? "#cbd5e1" : "#16a34a"}>Marcar Celdas</BtnContent>
                   </button>
                   <div style={{ width: 1, height: 20, background: "#e2e8f0", margin: "0 4px" }} />
-                  <button onClick={() => { if (selectedRows.size === 0) return; setConfirmDelete(true); }}
-                    disabled={selectedRows.size === 0}
-                    style={{ padding: "7px 10px", fontSize: 12, cursor: selectedRows.size === 0 ? "default" : "pointer", borderRadius: 4, border: "1px solid #fca5a5", background: selectedRows.size === 0 ? "#fafafa" : "#fff", color: selectedRows.size === 0 ? "#cbd5e1" : "#dc2626", whiteSpace: "nowrap" }}>
-                    <BtnContent icon={Trash2} iconColor={selectedRows.size === 0 ? "#cbd5e1" : "#dc2626"}>Borrar seleccionadas{selectedRows.size > 0 ? ` (${selectedRows.size})` : ""}</BtnContent>
+                  <button onClick={() => {
+                      // Determinar filas a borrar a partir del rectángulo azul o la celda activa
+                      const ids = new Set();
+                      if (selectionRange) {
+                        const r1 = Math.min(selectionRange.startRowIdx, selectionRange.endRowIdx);
+                        const r2 = Math.max(selectionRange.startRowIdx, selectionRange.endRowIdx);
+                        for (let i = r1; i <= r2; i++) { if (rows[i]) ids.add(rows[i].id); }
+                      } else if (selectedCell) {
+                        ids.add(selectedCell.rowId);
+                      }
+                      if (ids.size === 0) {
+                        setStatus("Selecciona las celdas (rectángulo azul) de las filas que quieres borrar", "error");
+                        return;
+                      }
+                      // Recopilar info para la confirmación
+                      const info = rows
+                        .map((row, idx) => ({ row, idx }))
+                        .filter(x => ids.has(x.row.id))
+                        .map(x => ({
+                          id: x.row.id,
+                          idx: x.idx,
+                          posicion: x.row.posicion,
+                          nombre: x.row.nombre,
+                          referencia: x.row.referencia,
+                          // Contenido de la celda concretamente seleccionada (si aplica a esta fila)
+                          celdaSel: (selectedCell && selectedCell.rowId === x.row.id)
+                            ? String(x.row[selectedCell.colKey] ?? "").trim()
+                            : null,
+                        }));
+                      setFilasABorrar(info);
+                      setConfirmDelete(true);
+                    }}
+                    disabled={!selectionRange && !selectedCell}
+                    style={{ padding: "7px 10px", fontSize: 12, cursor: (!selectionRange && !selectedCell) ? "default" : "pointer", borderRadius: 4, border: "1px solid #fca5a5", background: (!selectionRange && !selectedCell) ? "#fafafa" : "#fff", color: (!selectionRange && !selectedCell) ? "#cbd5e1" : "#dc2626", whiteSpace: "nowrap" }}>
+                    <BtnContent icon={Trash2} iconColor={(!selectionRange && !selectedCell) ? "#cbd5e1" : "#dc2626"}>Borrar seleccionadas</BtnContent>
                   </button>
                   <div style={{ width: 1, height: 20, background: "#e2e8f0", margin: "0 4px" }} />
                   <button onClick={() => {
@@ -13114,6 +13146,13 @@ function AppInner() {
                     style={{ padding: "7px 10px", fontSize: 12, cursor: (filasCopiadas.length === 0 || !selectedCell) ? "default" : "pointer", borderRadius: 4, border: "1px solid #cbd5e1", background: (filasCopiadas.length === 0 || !selectedCell) ? "#fafafa" : "#fff", color: (filasCopiadas.length === 0 || !selectedCell) ? "#94a3b8" : "#1e293b", whiteSpace: "nowrap" }}>
                     <BtnContent icon={ClipboardCheck} iconColor={(filasCopiadas.length === 0 || !selectedCell) ? "#cbd5e1" : "#16a34a"}>Pegar filas{filasCopiadas.length > 0 ? ` (${filasCopiadas.length})` : ""}</BtnContent>
                   </button>
+                  {filasCopiadas.length > 0 && (
+                    <button onClick={() => { setFilasCopiadas([]); setStatus("Selección copiada anulada", "info"); }}
+                      title="Anular la selección copiada"
+                      style={{ padding: "7px 8px", fontSize: 12, cursor: "pointer", borderRadius: 4, border: "1px solid #fca5a5", background: "#fff", color: "#dc2626", display: "inline-flex", alignItems: "center", marginLeft: -2 }}>
+                      <Icon as={X} size={14} color="#dc2626" />
+                    </button>
+                  )}
                   <div style={{ width: 1, height: 20, background: "#e2e8f0", margin: "0 4px" }} />
                   <button onClick={() => {
                       const ok = guardarPresupuestoLocal(presupuesto, rows);
@@ -14083,19 +14122,56 @@ function AppInner() {
       )}
       {confirmDelete && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }}>
-          <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", minWidth: 340, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+          <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", minWidth: 380, maxWidth: 560, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
               <Icon as={Trash2} size={22} color="#dc2626" />
               <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Confirmar borrado</h2>
             </div>
-            <p style={{ fontSize: 13, color: "#475569", margin: "0 0 20px" }}>
-              ¿Desea borrar <strong>{selectedRows.size}</strong> fila{selectedRows.size > 1 ? "s" : ""}?
-              <br /><span style={{ color: "#dc2626", fontSize: 12 }}>Esta acción no se puede deshacer.</span>
+            <p style={{ fontSize: 13, color: "#475569", margin: "0 0 10px" }}>
+              ¿Desea borrar <strong>{filasABorrar.length}</strong> fila{filasABorrar.length !== 1 ? "s" : ""}?
             </p>
+            {/* Detalle de las filas a borrar */}
+            <div style={{ maxHeight: 200, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 6, marginBottom: 14, fontSize: 12 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead style={{ position: "sticky", top: 0, background: "#f8fafc" }}>
+                  <tr>
+                    <th style={{ padding: "5px 8px", textAlign: "left", color: "#64748b", fontWeight: 600, borderBottom: "1px solid #e2e8f0" }}>Fila</th>
+                    <th style={{ padding: "5px 8px", textAlign: "left", color: "#64748b", fontWeight: 600, borderBottom: "1px solid #e2e8f0" }}>Pos.</th>
+                    <th style={{ padding: "5px 8px", textAlign: "left", color: "#64748b", fontWeight: 600, borderBottom: "1px solid #e2e8f0" }}>Referencia</th>
+                    <th style={{ padding: "5px 8px", textAlign: "left", color: "#64748b", fontWeight: 600, borderBottom: "1px solid #e2e8f0" }}>Producto</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filasABorrar.map((f, i) => (
+                    <tr key={f.id} style={{ borderBottom: "1px solid #f1f5f9", background: f.celdaSel != null ? "#fef9c3" : "transparent" }}>
+                      <td style={{ padding: "5px 8px", color: "#94a3b8" }}>{f.idx + 1}</td>
+                      <td style={{ padding: "5px 8px", color: "#475569" }}>{f.posicion || "—"}</td>
+                      <td style={{ padding: "5px 8px", fontFamily: "monospace", color: "#1e3a5f" }} title={f.referencia || ""}>{f.referencia || "—"}</td>
+                      <td style={{ padding: "5px 8px", color: "#475569", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={f.nombre || ""}>{f.nombre || "—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {filasABorrar.some(f => f.celdaSel != null) && (
+              <p style={{ fontSize: 12, color: "#92400e", margin: "0 0 12px" }}>
+                Celda seleccionada: <strong>"{(filasABorrar.find(f => f.celdaSel != null) || {}).celdaSel || ""}"</strong>
+              </p>
+            )}
+            <p style={{ color: "#dc2626", fontSize: 12, margin: "0 0 16px" }}>Esta acción no se puede deshacer.</p>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-              <button onClick={() => setConfirmDelete(false)} style={{ padding: "7px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13 }}><BtnContent icon={X}>Cancelar</BtnContent></button>
-              <button onClick={() => { setRows(r => r.filter(row => !selectedRows.has(row.id))); setSelectedRows(new Set()); setConfirmDelete(false); }}
-                style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: "#dc2626", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 500 }}><BtnContent icon={Trash2}>Borrar</BtnContent></button>
+              <button onClick={() => { setConfirmDelete(false); setFilasABorrar([]); }} style={{ padding: "7px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13 }}><BtnContent icon={X}>Cancelar</BtnContent></button>
+              <button onClick={() => {
+                  const ids = new Set(filasABorrar.map(f => f.id));
+                  setRows(r => r.filter(row => !ids.has(row.id)));
+                  setSelectedRows(new Set());
+                  setSelectionRange(null);
+                  setSelectedCell(null);
+                  setConfirmDelete(false);
+                  setStatus(`${ids.size} fila${ids.size !== 1 ? "s" : ""} borrada${ids.size !== 1 ? "s" : ""}`, "success");
+                  setFilasABorrar([]);
+                }}
+                style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: "#dc2626", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 500 }}><BtnContent icon={Trash2}>Borrar {filasABorrar.length} fila{filasABorrar.length !== 1 ? "s" : ""}</BtnContent></button>
             </div>
           </div>
         </div>
