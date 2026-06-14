@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.28.1 (14 Junio 2026)
+// Versión: v2.29.0 (14 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.29.0 (14 Junio 2026) - Estilos: Exportar/Importar JSON, Restaurar por defecto y Aplicar y guardar actúan sobre AMBOS conjuntos (pantalla e imprimir). JSON con formato {version,pantalla,imprimir} (compatible con el formato antiguo). Dos borradores independientes para no perder cambios al cambiar de pestaña
 //   v2.28.1 (14 Junio 2026) - Fix arranque (Cannot access ... before initialization): el useEffect de autoguardado usaba `presupuesto` en sus dependencias antes de declararlo (TDZ); movido tras la declaración de presupuesto
 //   v2.28.0 (14 Junio 2026) - Configurar Estilos con 2 pestañas: "En pantalla" (grid/Aplicar Estructura) e "Imprimir" (Excel de Presupuesto→Imprimir), conjuntos independientes en localStorage; mismos botones para guardar/exportar/importar/restaurar por pestaña
 //   v2.27.0 (14 Junio 2026) - Hook useTableSort(items, valorDe) para ordenar por columna (flecha asc/desc + cabecera resaltada). Aplicado a Leer Presupuestos (refactor), Leer Producto y Leer Elemento (ordenación nueva en ambos)
@@ -3590,22 +3591,22 @@ function OpcionesScreen({ estilos, setEstilos, estilosImprimir, setEstilosImprim
   const [seccion, setSeccion] = useState("estilos");
   // Pestaña de estilos activa: "pantalla" o "imprimir"
   const [estilosTab, setEstilosTab] = useState("pantalla");
-  // Conjunto de estilos y su setter según la pestaña activa
-  const estilosActivos = estilosTab === "imprimir" ? estilosImprimir : estilos;
-  const setEstilosActivos = estilosTab === "imprimir" ? setEstilosImprimir : setEstilos;
 
-  const [draft, setDraft] = useState(estilosActivos);
+  // Dos borradores independientes (uno por conjunto), para no perder cambios
+  // al cambiar de pestaña. "Aplicar y guardar" persiste ambos.
+  const [draftPantalla, setDraftPantalla] = useState(estilos);
+  const [draftImprimir, setDraftImprimir] = useState(estilosImprimir);
   const [confirmReset, setConfirmReset] = useState(false);
 
-  // Al cambiar de pestaña, recargar el borrador con los estilos de esa pestaña
-  useEffect(() => {
-    setDraft(estilosTab === "imprimir" ? estilosImprimir : estilos);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [estilosTab]);
+  // El borrador y su setter de la pestaña activa
+  const draft = estilosTab === "imprimir" ? draftImprimir : draftPantalla;
+  const setDraft = estilosTab === "imprimir" ? setDraftImprimir : setDraftPantalla;
 
   const aplicar = () => {
-    setEstilosActivos(draft);
-    setStatus && setStatus(`Estilos "${estilosTab === "imprimir" ? "Imprimir" : "En pantalla"}" guardados`, "success");
+    // Guardar AMBOS conjuntos desde sus respectivos borradores
+    setEstilos(draftPantalla);
+    setEstilosImprimir(draftImprimir);
+    setStatus && setStatus("Estilos guardados (En pantalla e Imprimir)", "success");
   };
 
   const resetear = () => {
@@ -3613,13 +3614,18 @@ function OpcionesScreen({ estilos, setEstilos, estilosImprimir, setEstilosImprim
   };
 
   const confirmarReset = () => {
-    const def = JSON.parse(JSON.stringify(ESTILOS_DEFAULT));
-    setDraft(def);
-    setEstilosActivos(def);
+    // Restaurar AMBOS conjuntos a los valores por defecto y guardarlos.
+    const def = () => JSON.parse(JSON.stringify(ESTILOS_DEFAULT));
+    setDraftPantalla(def());
+    setDraftImprimir(def());
+    setEstilos(def());
+    setEstilosImprimir(def());
     setConfirmReset(false);
+    setStatus && setStatus("Estilos restaurados por defecto (En pantalla e Imprimir)", "success");
   };
 
-  const hayCambios = JSON.stringify(draft) !== JSON.stringify(estilosActivos);
+  const hayCambios = JSON.stringify(draftPantalla) !== JSON.stringify(estilos)
+                  || JSON.stringify(draftImprimir) !== JSON.stringify(estilosImprimir);
 
   const actualizar = (nat, campo, valor) => {
     setDraft(d => ({ ...d, [nat]: { ...d[nat], [campo]: valor } }));
@@ -3671,8 +3677,9 @@ function OpcionesScreen({ estilos, setEstilos, estilosImprimir, setEstilosImprim
                 <h2 style={{ fontSize: 18, fontWeight: 700, color: "#171717", margin: 0 }}>Configurar Estilos <span style={{ fontSize: 13, fontWeight: 500, color: "#64748b" }}>· {estilosTab === "imprimir" ? "Imprimir" : "En pantalla"}</span></h2>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button onClick={() => {
-                      // Exportar estilos a fichero JSON
-                      const data = JSON.stringify(draft, null, 2);
+                      // Exportar AMBOS conjuntos de estilos (pantalla + imprimir) a un JSON
+                      const payload = { version: 2, pantalla: draftPantalla, imprimir: draftImprimir };
+                      const data = JSON.stringify(payload, null, 2);
                       const blob = new Blob([data], { type: "application/json" });
                       const url = URL.createObjectURL(blob);
                       const a = document.createElement("a");
@@ -3683,14 +3690,14 @@ function OpcionesScreen({ estilos, setEstilos, estilosImprimir, setEstilosImprim
                       a.click();
                       document.body.removeChild(a);
                       URL.revokeObjectURL(url);
-                      setStatus && setStatus("Estilos exportados a fichero JSON", "success");
+                      setStatus && setStatus("Estilos exportados a JSON (En pantalla e Imprimir)", "success");
                     }}
-                    title="Descargar los estilos actuales en un fichero JSON"
+                    title="Descargar ambos conjuntos de estilos (pantalla e imprimir) en un fichero JSON"
                     style={{ padding: "5px 12px", borderRadius: 6, border: "1px solid #d4d4d4", background: "#fff", color: "#171717", cursor: "pointer", fontSize: 12 }}>
                     <BtnContent icon={Download} iconColor="#475569">Exportar JSON</BtnContent>
                   </button>
                   <button onClick={() => document.getElementById("import-estilos-input")?.click()}
-                    title="Cargar estilos desde un fichero JSON exportado previamente"
+                    title="Cargar ambos conjuntos de estilos desde un fichero JSON exportado previamente"
                     style={{ padding: "5px 12px", borderRadius: 6, border: "1px solid #d4d4d4", background: "#fff", color: "#171717", cursor: "pointer", fontSize: 12 }}>
                     <BtnContent icon={FileUp} iconColor="#475569">Importar JSON</BtnContent>
                   </button>
@@ -3704,13 +3711,25 @@ function OpcionesScreen({ estilos, setEstilos, estilosImprimir, setEstilosImprim
                         try {
                           const parsed = JSON.parse(ev.target.result);
                           if (!parsed || typeof parsed !== "object") throw new Error("Formato inválido");
-                          // Fusionar con defaults para no perder ninguna clave
-                          const fusionado = {};
-                          Object.keys(ESTILOS_DEFAULT).forEach(k => {
-                            fusionado[k] = { ...ESTILOS_DEFAULT[k], ...(parsed[k] || {}) };
-                          });
-                          setDraft(fusionado);
-                          setStatus && setStatus(`Estilos importados desde "${file.name}". Pulsa "Aplicar y guardar" para aplicar los cambios.`, "success");
+                          const fusionarUno = (origen) => {
+                            const out = {};
+                            Object.keys(ESTILOS_DEFAULT).forEach(k => {
+                              out[k] = { ...ESTILOS_DEFAULT[k], ...((origen && origen[k]) || {}) };
+                            });
+                            return out;
+                          };
+                          // Formato nuevo: { pantalla, imprimir }. Formato antiguo: un solo conjunto.
+                          if (parsed.pantalla || parsed.imprimir) {
+                            setDraftPantalla(fusionarUno(parsed.pantalla));
+                            setDraftImprimir(fusionarUno(parsed.imprimir));
+                            setStatus && setStatus(`Estilos importados desde "${file.name}" (En pantalla e Imprimir). Pulsa "Aplicar y guardar".`, "success");
+                          } else {
+                            // Compatibilidad: un único conjunto se aplica a ambas pestañas
+                            const uno = fusionarUno(parsed);
+                            setDraftPantalla(uno);
+                            setDraftImprimir(uno);
+                            setStatus && setStatus(`Estilos importados desde "${file.name}" (aplicados a ambos conjuntos). Pulsa "Aplicar y guardar".`, "success");
+                          }
                         } catch (err) {
                           setStatus && setStatus("Error importando estilos: " + err.message, "error");
                         }
@@ -3825,7 +3844,7 @@ function OpcionesScreen({ estilos, setEstilos, estilosImprimir, setEstilosImprim
               <h2 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Restaurar valores por defecto</h2>
             </div>
             <p style={{ fontSize: 13, color: "#475569", margin: "0 0 20px", lineHeight: 1.6 }}>
-              Se restaurarán todos los estilos a sus valores originales y se borrarán los cambios guardados.
+              Se restaurarán <strong>ambos conjuntos</strong> de estilos (En pantalla e Imprimir) a sus valores originales y se guardarán los cambios.
               <br /><span style={{ color: "#94a3b8", fontSize: 12 }}>Esta acción se aplica inmediatamente y no se puede deshacer.</span>
             </p>
             <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
@@ -12221,7 +12240,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.28.1 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.29.0 (14 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12535,7 +12554,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.28.1 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.29.0 (14 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
