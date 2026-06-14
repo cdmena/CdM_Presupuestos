@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.23.0 (12 Junio 2026)
+// Versión: v2.28.0 (14 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,11 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.28.0 (14 Junio 2026) - Configurar Estilos con 2 pestañas: "En pantalla" (grid/Aplicar Estructura) e "Imprimir" (Excel de Presupuesto→Imprimir), conjuntos independientes en localStorage; mismos botones para guardar/exportar/importar/restaurar por pestaña
+//   v2.27.0 (14 Junio 2026) - Hook useTableSort(items, valorDe) para ordenar por columna (flecha asc/desc + cabecera resaltada). Aplicado a Leer Presupuestos (refactor), Leer Producto y Leer Elemento (ordenación nueva en ambos)
+//   v2.26.0 (13 Junio 2026) - Refactor: hook useColumnResize(anchosIniciales) elimina la triplicación del redimensionado de columnas en Leer Producto, Leer Elemento y Leer Presupuestos. El grid de presupuesto se mantiene aparte (maneja columnas y filas con anchos auto/base, distinto patrón)
+//   v2.25.0 (13 Junio 2026) - Warm-up del servidor al arrancar (ping a / con reintentos y aviso) para evitar la sensación de cuelgue cuando Render está dormido; autoguardado automático del borrador en localStorage (debounce 1,5 s) con aviso de borrador recuperado
+//   v2.24.0 (13 Junio 2026) - Refactor: el indicador de actividad de BD ya no parchea window.fetch; se usa un wrapper explícito apiFetch() con contador de concurrencia encapsulado (bdActivity) y suscripción del setStatus de App. Migradas las 99 llamadas a la API
 //   v2.23.0 (12 Junio 2026) - Ayuda reorganizada por temáticas: eliminada la sección "Novedades recientes"; cada función nueva documentada en su menú/submenú (Presupuesto, Celdas, Elementos, Productos, Descuentos, Otros) y lo genérico en Acciones de la grid y Barra de estado
 //   v2.22.1 (12 Junio 2026) - Ayuda actualizada: bloque "Lo más nuevo (versión 2.x)" en Novedades y entrada "Ver datasheet" en el menú Productos
 //   v2.22.0 (12 Junio 2026) - Leer Presupuestos: columnas redimensionables (arrastrar) y ordenación por Nº completo+revisión, fecha, cliente e ID (clic en cabecera, resalta columna y muestra flecha asc/desc); tooltips en celdas
@@ -221,6 +226,109 @@ const Icon = ({ as: Component, size = 14, color = "currentColor" }) => Component
   <Component size={size} color={color} strokeWidth={1.6} style={{ flexShrink: 0 }} />
 ) : null;
 
+// ── Hook reutilizable para redimensionar columnas de una tabla ──
+// Encapsula el estado de anchos, el arrastre del tirador y el componente <Resizer />.
+// Lo usan los diálogos Leer Producto, Leer Elemento y Leer Presupuestos.
+// Uso:  const { anchosCol, Resizer } = useColumnResize(ANCHOS_INI);
+//       <th style={{ position:"relative", width: anchosCol.x, ... }}>Texto<Resizer colKey="x" /></th>
+function useColumnResize(anchosIniciales, minWidth = 40) {
+  const [anchosCol, setAnchosCol] = useState(anchosIniciales);
+  const resizeRef = useRef(null);
+
+  const onResizeCol = (e, key) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startW = anchosCol[key] ?? 100;
+    resizeRef.current = { key, startX, startW };
+    const onMove = (ev) => {
+      if (!resizeRef.current) return;
+      const { key: k, startX: sx, startW: sw } = resizeRef.current;
+      const nuevo = Math.max(minWidth, sw + (ev.clientX - sx));
+      setAnchosCol(prev => ({ ...prev, [k]: nuevo }));
+    };
+    const onUp = () => {
+      resizeRef.current = null;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
+
+  // Tirador de redimensión en el borde derecho de una cabecera
+  const Resizer = ({ colKey }) => (
+    <div
+      onMouseDown={(e) => onResizeCol(e, colKey)}
+      onDoubleClick={(e) => { e.stopPropagation(); setAnchosCol(prev => ({ ...prev, [colKey]: anchosIniciales[colKey] })); }}
+      title="Arrastra para redimensionar (doble clic para restablecer)"
+      onMouseEnter={e => { e.currentTarget.style.background = "#2563eb"; }}
+      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
+      style={{ position: "absolute", top: 0, right: -4, width: 9, height: "100%", cursor: "col-resize", zIndex: 6, transition: "background 0.1s" }}
+    />
+  );
+
+  return { anchosCol, setAnchosCol, Resizer };
+}
+
+// ── Hook reutilizable para ordenar una tabla por columna ──
+// Encapsula el estado de orden (columna + dirección), el alternado asc/desc al
+// pulsar una cabecera, la flecha indicadora ▲/▼ y el estilo de cabecera activa.
+// Lo usan los diálogos Leer Producto, Leer Elemento y Leer Presupuestos.
+// Uso:
+//   const valorDe = (fila, col) => { switch(col){ case "fecha": return ...; } };
+//   const { ordenados, ordenarPor, FlechaOrden, thOrden } = useTableSort(lista, valorDe);
+//   <th onClick={() => ordenarPor("fecha")} style={thOrden("fecha", { width: 130 })}>Fecha<FlechaOrden col="fecha" /></th>
+//   {ordenados.map(...)}
+// valorDe puede devolver un array [a, b, ...] para ordenación compuesta (p. ej. nº + revisión).
+function useTableSort(items, valorDe) {
+  const [orden, setOrden] = useState({ col: null, dir: "asc" });
+
+  const ordenarPor = (col) => {
+    setOrden(o => o.col === col ? { col, dir: o.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" });
+  };
+
+  const FlechaOrden = ({ col }) => {
+    if (orden.col !== col) return null;
+    return <span style={{ marginLeft: 4, fontSize: 10 }}>{orden.dir === "asc" ? "▲" : "▼"}</span>;
+  };
+
+  const thOrden = (col, extra = {}) => ({
+    cursor: "pointer", userSelect: "none",
+    background: orden.col === col ? "#dbeafe" : "transparent",
+    ...extra,
+  });
+
+  const ordenados = (() => {
+    if (!orden.col) return items;
+    const arr = [...items];
+    const dir = orden.dir === "asc" ? 1 : -1;
+    const cmp = (a, b) => {
+      const va = valorDe(a, orden.col);
+      const vb = valorDe(b, orden.col);
+      if (Array.isArray(va)) {
+        // Comparación compuesta: compara elemento a elemento
+        for (let i = 0; i < va.length; i++) {
+          if (va[i] < vb[i]) return -1 * dir;
+          if (va[i] > vb[i]) return 1 * dir;
+        }
+        return 0;
+      }
+      if (va < vb) return -1 * dir;
+      if (va > vb) return 1 * dir;
+      return 0;
+    };
+    arr.sort(cmp);
+    return arr;
+  })();
+
+  return { ordenados, ordenarPor, FlechaOrden, thOrden, orden };
+}
+
 // Helper para descargar Excel en cualquier entorno (CodeSandbox, navegador, etc.)
 function descargarXLSX(wb, nombreFichero) {
   // Generar buffer del workbook en memoria
@@ -251,10 +359,6 @@ const API_URL = "https://presupuestos-api-x11d.onrender.com"
 const API_LOCAL_URL = "http://127.0.0.1:8000";
 
 // ── Indicador global de actividad con la BD ──
-// Un "puente" que el componente App rellena con su setStatus, para que el
-// interceptor de fetch pueda avisar en la barra de estado en cada consulta.
-const bdBridge = { setStatus: null, activas: 0 };
-
 // Traduce una URL de la API a un nombre legible de tabla/operación
 function nombreTablaDesdeURL(url) {
   try {
@@ -277,35 +381,46 @@ function nombreTablaDesdeURL(url) {
   }
 }
 
-// Interceptar window.fetch una sola vez (a nivel de módulo)
-if (typeof window !== "undefined" && !window.__bdFetchPatched) {
-  window.__bdFetchPatched = true;
-  const originalFetch = window.fetch.bind(window);
-  window.fetch = (input, init) => {
-    const url = typeof input === "string" ? input : (input && input.url) || "";
-    const esBD = typeof url === "string" && url.indexOf(API_URL) === 0;
-    if (esBD && bdBridge.setStatus) {
-      const metodo = ((init && init.method) || "GET").toUpperCase();
-      const tabla = nombreTablaDesdeURL(url);
-      const verbo = metodo === "GET" ? "Consultando" : metodo === "DELETE" ? "Borrando en" : metodo === "POST" ? "Guardando en" : "Actualizando";
-      bdBridge.activas++;
-      bdBridge.setStatus(`${verbo} ${tabla} en la base de datos...`, "working");
-      return originalFetch(input, init)
-        .then((res) => {
-          bdBridge.activas = Math.max(0, bdBridge.activas - 1);
-          if (bdBridge.activas === 0 && bdBridge.setStatus) {
-            bdBridge.setStatus(res.ok ? `Datos de ${tabla} leídos correctamente` : `Respuesta de ${tabla} (estado ${res.status})`, res.ok ? "success" : "error");
-          }
-          return res;
-        })
-        .catch((err) => {
-          bdBridge.activas = Math.max(0, bdBridge.activas - 1);
-          if (bdBridge.setStatus) bdBridge.setStatus(`Error al conectar con la base de datos (${tabla})`, "error");
-          throw err;
-        });
-    }
-    return originalFetch(input, init);
+// ── apiFetch: wrapper explícito de fetch para llamadas a la BD ──
+// En lugar de parchear window.fetch globalmente, este módulo expone:
+//   - apiFetch(url, opts): igual que fetch pero avisa en la barra de estado
+//     (antes "Consultando..." y después "leído"/"error"), respetando llamadas
+//     concurrentes mediante un contador encapsulado.
+//   - bdActivity.subscribe(fn): el componente App registra su setStatus.
+// Así no hay efectos secundarios sobre el fetch global ni "puentes" sueltos.
+const bdActivity = (() => {
+  let listener = null;     // función setStatus registrada por App
+  let activas = 0;         // llamadas en curso (encapsulado en el closure)
+  return {
+    subscribe(fn) { listener = fn; return () => { if (listener === fn) listener = null; }; },
+    emit(text, type) { if (listener) listener(text, type); },
+    inc() { activas++; },
+    dec() { activas = Math.max(0, activas - 1); return activas; },
   };
+})();
+
+function apiFetch(input, init) {
+  const url = typeof input === "string" ? input : (input && input.url) || "";
+  const esBD = typeof url === "string" && url.indexOf(API_URL) === 0;
+  if (!esBD) return fetch(input, init);
+
+  const metodo = ((init && init.method) || "GET").toUpperCase();
+  const tabla = nombreTablaDesdeURL(url);
+  const verbo = metodo === "GET" ? "Consultando" : metodo === "DELETE" ? "Borrando en" : metodo === "POST" ? "Guardando en" : "Actualizando";
+  bdActivity.inc();
+  bdActivity.emit(`${verbo} ${tabla} en la base de datos...`, "working");
+  return fetch(input, init)
+    .then((res) => {
+      if (bdActivity.dec() === 0) {
+        bdActivity.emit(res.ok ? `Datos de ${tabla} leídos correctamente` : `Respuesta de ${tabla} (estado ${res.status})`, res.ok ? "success" : "error");
+      }
+      return res;
+    })
+    .catch((err) => {
+      bdActivity.dec();
+      bdActivity.emit(`Error al conectar con la base de datos (${tabla})`, "error");
+      throw err;
+    });
 }
 
 // ── Pantalla de Opciones ──
@@ -399,7 +514,7 @@ function TarifasSection({ setStatus }) {
 
   // Cargar subfamilias al montar
   useEffect(() => {
-    fetch(`${API_URL}/subfamilias/`)
+    apiFetch(`${API_URL}/subfamilias/`)
       .then(r => r.ok ? r.json() : [])
       .then(setSubfamilias)
       .catch(() => setSubfamilias([]));
@@ -475,7 +590,7 @@ function TarifasSection({ setStatus }) {
     let gruposDesc = [];
     if (idxPorClave.grupodescuento !== undefined) {
       try {
-        const r = await fetch(`${API_URL}/gruposdescuento/`);
+        const r = await apiFetch(`${API_URL}/gruposdescuento/`);
         if (r.ok) {
           gruposDesc = await r.json();
           addLog(`Cargados ${gruposDesc.length} grupos descuento de BD`, "info");
@@ -566,7 +681,7 @@ function TarifasSection({ setStatus }) {
       if (errorGrupo) { errores++; continue; }
 
       try {
-        const resBuscar = await fetch(`${API_URL}/productos/referencia/${encodeURIComponent(referencia)}`);
+        const resBuscar = await apiFetch(`${API_URL}/productos/referencia/${encodeURIComponent(referencia)}`);
 
         if (resBuscar.ok) {
           // EXISTE
@@ -580,7 +695,7 @@ function TarifasSection({ setStatus }) {
             addLog(`Fila ${i + 1}: ${referencia} → solo se aportó referencia, no hay nada que actualizar`, "info");
             continue;
           }
-          const resPatch = await fetch(`${API_URL}/productos/${prodBd.id}`, {
+          const resPatch = await apiFetch(`${API_URL}/productos/${prodBd.id}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(datosExcel),
@@ -609,7 +724,7 @@ function TarifasSection({ setStatus }) {
           }
           // POST con referencia + campos aportados (sin familia/subfamilia)
           const body = { referencia, ...datosExcel };
-          const resCrear = await fetch(`${API_URL}/productos/`, {
+          const resCrear = await apiFetch(`${API_URL}/productos/`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -859,7 +974,7 @@ function UsuariosSection({ setStatus }) {
     setCargando(true);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/usuarios/`);
+      const res = await apiFetch(`${API_URL}/usuarios/`);
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
       setUsuarios(data);
@@ -929,7 +1044,7 @@ function UsuariosSection({ setStatus }) {
   const borrar = async (id, nombre) => {
     setStatus && setStatus(`Borrando usuario "${nombre}"...`, "working");
     try {
-      const res = await fetch(`${API_URL}/usuarios/${id}`, { method: "DELETE" });
+      const res = await apiFetch(`${API_URL}/usuarios/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       setStatus && setStatus(`Usuario "${nombre}" borrado`, "success");
       setConfirmBorrar(null);
@@ -1134,7 +1249,7 @@ function MantenimientoSubfamiliaDialog({ onClose, setStatus }) {
   const cargar = async () => {
     setCargando(true);
     try {
-      const res = await fetch(`${API_URL}/subfamilias/`);
+      const res = await apiFetch(`${API_URL}/subfamilias/`);
       if (!res.ok) throw new Error("HTTP " + res.status);
       setSubfamilias(await res.json());
     } catch (e) {
@@ -1147,7 +1262,7 @@ function MantenimientoSubfamiliaDialog({ onClose, setStatus }) {
   useEffect(() => {
     cargar();
     // Cargar familias en paralelo para el selector de edición
-    fetch(`${API_URL}/familias/`)
+    apiFetch(`${API_URL}/familias/`)
       .then(r => r.ok ? r.json() : [])
       .then(setFamilias)
       .catch(() => setFamilias([]));
@@ -1179,7 +1294,7 @@ function MantenimientoSubfamiliaDialog({ onClose, setStatus }) {
     }
     setGuardando(true);
     try {
-      const res = await fetch(`${API_URL}/subfamilias/${seleccionada.id}`, {
+      const res = await apiFetch(`${API_URL}/subfamilias/${seleccionada.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1207,7 +1322,7 @@ function MantenimientoSubfamiliaDialog({ onClose, setStatus }) {
     setComprobandoUso(true);
     setStatus && setStatus(`Comprobando referencias de "${seleccionada.subfamilia}"...`, "working");
     try {
-      const res = await fetch(`${API_URL}/subfamilias/${seleccionada.id}/uso`);
+      const res = await apiFetch(`${API_URL}/subfamilias/${seleccionada.id}/uso`);
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
       if (!data.borrable) {
@@ -1227,7 +1342,7 @@ function MantenimientoSubfamiliaDialog({ onClose, setStatus }) {
     if (!confirmBorrar) return;
     setBorrando(true);
     try {
-      const res = await fetch(`${API_URL}/subfamilias/${confirmBorrar.id}`, { method: "DELETE" });
+      const res = await apiFetch(`${API_URL}/subfamilias/${confirmBorrar.id}`, { method: "DELETE" });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         throw new Error(err?.detail || "HTTP " + res.status);
@@ -1398,7 +1513,7 @@ function MantenimientoFamiliaDialog({ onClose, setStatus }) {
   const cargar = async () => {
     setCargando(true);
     try {
-      const res = await fetch(`${API_URL}/familias/`);
+      const res = await apiFetch(`${API_URL}/familias/`);
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
       setFamilias(data);
@@ -1432,7 +1547,7 @@ function MantenimientoFamiliaDialog({ onClose, setStatus }) {
     }
     setGuardando(true);
     try {
-      const res = await fetch(`${API_URL}/familias/${seleccionada.id}`, {
+      const res = await apiFetch(`${API_URL}/familias/${seleccionada.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ familia: editar.familia.trim(), descripcion: editar.descripcion }),
@@ -1457,7 +1572,7 @@ function MantenimientoFamiliaDialog({ onClose, setStatus }) {
     setComprobandoUso(true);
     setStatus && setStatus(`Comprobando referencias de "${seleccionada.familia}"...`, "working");
     try {
-      const res = await fetch(`${API_URL}/familias/${seleccionada.id}/uso`);
+      const res = await apiFetch(`${API_URL}/familias/${seleccionada.id}/uso`);
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
       if (!data.borrable) {
@@ -1477,7 +1592,7 @@ function MantenimientoFamiliaDialog({ onClose, setStatus }) {
     if (!confirmBorrar) return;
     setBorrando(true);
     try {
-      const res = await fetch(`${API_URL}/familias/${confirmBorrar.id}`, { method: "DELETE" });
+      const res = await apiFetch(`${API_URL}/familias/${confirmBorrar.id}`, { method: "DELETE" });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         throw new Error(err?.detail || "HTTP " + res.status);
@@ -1905,7 +2020,7 @@ function MantenimientoSection({ setStatus }) {
     if (!nombre) { setStatus && setStatus("Indica un nombre para la nueva estrategia", "error"); return; }
     setCreandoEstr(true);
     try {
-      const r = await fetch(`${API_URL}/descuentos/`, {
+      const r = await apiFetch(`${API_URL}/descuentos/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ nombre, descripcion: nuevaEstrDesc.trim() || null, detalle: [] }),
@@ -1938,7 +2053,7 @@ function MantenimientoSection({ setStatus }) {
     setStatus && setStatus("Comprobando integridad de datos en BD...", "working");
     integridadAddLog("Iniciando comprobación de integridad referencial...", "info");
     try {
-      const r = await fetch(`${API_URL}/integridad/comprobar`);
+      const r = await apiFetch(`${API_URL}/integridad/comprobar`);
       if (!r.ok) throw new Error("HTTP " + r.status);
       const data = await r.json();
       integridadAddLog(`Comprobadas ${data.total_relaciones} relaciones entre tablas`, "info");
@@ -1995,7 +2110,7 @@ function MantenimientoSection({ setStatus }) {
 
     try {
       // 1. Cargar todos los grupos
-      const resGrupos = await fetch(`${API_URL}/gruposdescuento/`);
+      const resGrupos = await apiFetch(`${API_URL}/gruposdescuento/`);
       if (!resGrupos.ok) throw new Error("Error cargando grupos: " + resGrupos.status);
       const grupos = await resGrupos.json();
       asignarAddLog(`Cargados ${grupos.length} grupos de descuento`, "info");
@@ -2020,7 +2135,7 @@ function MantenimientoSection({ setStatus }) {
           // Contar previo
           let count = 0;
           try {
-            const resC = await fetch(`${API_URL}/productos/contar-por-raiz?raiz=${encodeURIComponent(raiz)}`);
+            const resC = await apiFetch(`${API_URL}/productos/contar-por-raiz?raiz=${encodeURIComponent(raiz)}`);
             if (resC.ok) {
               const d = await resC.json();
               count = d.productos || 0;
@@ -2058,7 +2173,7 @@ function MantenimientoSection({ setStatus }) {
           confirmadas++;
 
           try {
-            const resApl = await fetch(`${API_URL}/productos/aplicar-grupo-por-raiz`, {
+            const resApl = await apiFetch(`${API_URL}/productos/aplicar-grupo-por-raiz`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ raiz, idgrupo: g.id }),
@@ -2191,7 +2306,7 @@ function MantenimientoSection({ setStatus }) {
     let subfamilias = [];
     if (idxPorClave.subfamilia !== undefined) {
       try {
-        const r = await fetch(`${API_URL}/subfamilias/`);
+        const r = await apiFetch(`${API_URL}/subfamilias/`);
         subfamilias = await r.json();
         gdAddLog(`Cargadas ${subfamilias.length} subfamilias de BD para resolver ids`, "info");
       } catch (e) {
@@ -2260,7 +2375,7 @@ function MantenimientoSection({ setStatus }) {
 
       try {
         // Buscar si existe
-        const resBuscar = await fetch(`${API_URL}/gruposdescuento/${encodeURIComponent(codigoGD)}`);
+        const resBuscar = await apiFetch(`${API_URL}/gruposdescuento/${encodeURIComponent(codigoGD)}`);
         if (resBuscar.status === 404) {
           // NO EXISTE: dar de alta. Requiere grupodescuentospain + subfamilia (resuelta a id)
           if (idSubfamRel === null) {
@@ -2268,7 +2383,7 @@ function MantenimientoSection({ setStatus }) {
             errores++; continue;
           }
           const body = { grupodescuentospain: codigoGD, ...payload };
-          const res = await fetch(`${API_URL}/gruposdescuento/`, {
+          const res = await apiFetch(`${API_URL}/gruposdescuento/`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -2295,7 +2410,7 @@ function MantenimientoSection({ setStatus }) {
           const body = { grupodescuentospain: codigoGD, ...payload };
           const qsAportados = [...aportados, "grupodescuentospain"];
           const qs = qsAportados.map(c => `solo_aportados=${encodeURIComponent(c)}`).join("&");
-          const res = await fetch(`${API_URL}/gruposdescuento/${existente.id}?${qs}`, {
+          const res = await apiFetch(`${API_URL}/gruposdescuento/${existente.id}?${qs}`, {
             method: "PUT",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body),
@@ -2326,7 +2441,7 @@ function MantenimientoSection({ setStatus }) {
     setUltimoResultadoMasusado(null);
     setStatus && setStatus("Recalculando campo masusado de los productos...", "working");
     try {
-      const res = await fetch(`${API_URL}/productos/actualizar-masusado`, { method: "POST" });
+      const res = await apiFetch(`${API_URL}/productos/actualizar-masusado`, { method: "POST" });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         throw new Error(err?.detail || `Error ${res.status}`);
@@ -2357,7 +2472,7 @@ function MantenimientoSection({ setStatus }) {
     setCargandoLogs(true);
     setErrorLogs(null);
     try {
-      const res = await fetch(`${API_URL}/logs/`);
+      const res = await apiFetch(`${API_URL}/logs/`);
       if (!res.ok) throw new Error("Error " + res.status);
       const data = await res.json();
       setLogs(data);
@@ -2378,7 +2493,7 @@ function MantenimientoSection({ setStatus }) {
     setBorrando(true);
     setStatus && setStatus(`Borrando logs anteriores a ${fechaCorte}...`, "working");
     try {
-      const res = await fetch(`${API_URL}/logs/?antes_de=${fechaCorte}`, { method: "DELETE" });
+      const res = await apiFetch(`${API_URL}/logs/?antes_de=${fechaCorte}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Error " + res.status);
       const data = await res.json();
       setStatus && setStatus(`${data.borrados ?? 0} logs borrados`, "success");
@@ -2395,7 +2510,7 @@ function MantenimientoSection({ setStatus }) {
     setExportandoSubfam(true);
     setStatus && setStatus("Generando Excel de Familia/SubFamilia...", "working");
     try {
-      const res = await fetch(`${API_URL}/subfamilias/`);
+      const res = await apiFetch(`${API_URL}/subfamilias/`);
       if (!res.ok) throw new Error("Error " + res.status);
       const subfamilias = await res.json();
 
@@ -2547,11 +2662,11 @@ function MantenimientoSection({ setStatus }) {
           cargarContexto: async () => {
             const ctx = { clientes: [], provincias: [] };
             try {
-              const rc = await fetch(`${API_URL}/clientes/`);
+              const rc = await apiFetch(`${API_URL}/clientes/`);
               if (rc.ok) ctx.clientes = await rc.json();
             } catch {}
             try {
-              const rp = await fetch(`${API_URL}/provincias/`);
+              const rp = await apiFetch(`${API_URL}/provincias/`);
               if (rp.ok) ctx.provincias = await rp.json();
             } catch {}
             return ctx;
@@ -2607,7 +2722,7 @@ function MantenimientoSection({ setStatus }) {
                 telefono1: datos.telefono1 || existente.telefono1 || null,
                 idprovincia: idprovincia != null ? idprovincia : (existente.idprovincia ?? null),
               };
-              const r = await fetch(`${API_URL}/clientes/${existente.id}`, {
+              const r = await apiFetch(`${API_URL}/clientes/${existente.id}`, {
                 method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
               });
               if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
@@ -2626,7 +2741,7 @@ function MantenimientoSection({ setStatus }) {
                 telefono1: datos.telefono1 || null,
                 idprovincia,
               };
-              const r = await fetch(`${API_URL}/clientes/`, {
+              const r = await apiFetch(`${API_URL}/clientes/`, {
                 method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
               });
               if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
@@ -2658,11 +2773,11 @@ function MantenimientoSection({ setStatus }) {
           cargarContexto: async () => {
             const ctx = { contactos: [], clientes: [] };
             try {
-              const rc = await fetch(`${API_URL}/contactos/`);
+              const rc = await apiFetch(`${API_URL}/contactos/`);
               if (rc.ok) ctx.contactos = await rc.json();
             } catch {}
             try {
-              const rcl = await fetch(`${API_URL}/clientes/`);
+              const rcl = await apiFetch(`${API_URL}/clientes/`);
               if (rcl.ok) ctx.clientes = await rcl.json();
             } catch {}
             return ctx;
@@ -2694,14 +2809,14 @@ function MantenimientoSection({ setStatus }) {
                 addLog(`Fila ${nFila}: "${datos.nombre}" (${cli.nombrecomun}) → ya existe, se omite (actualizar = NO)`, "info");
                 return "omitido";
               }
-              const r = await fetch(`${API_URL}/contactos/${existente.id}`, {
+              const r = await apiFetch(`${API_URL}/contactos/${existente.id}`, {
                 method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
               });
               if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
               addLog(`Fila ${nFila}: "${datos.nombre}" (${cli.nombrecomun}) → ACTUALIZADO`, "success");
               return "actualizado";
             } else {
-              const r = await fetch(`${API_URL}/contactos/`, {
+              const r = await apiFetch(`${API_URL}/contactos/`, {
                 method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
               });
               if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
@@ -2761,15 +2876,15 @@ function MantenimientoSection({ setStatus }) {
           cargarContexto: async () => {
             const ctx = { detalle: [], estrategias: [], grupos: [] };
             try {
-              const r = await fetch(`${API_URL}/descuentos/detalle/listar`);
+              const r = await apiFetch(`${API_URL}/descuentos/detalle/listar`);
               if (r.ok) ctx.detalle = await r.json();
             } catch {}
             try {
-              const re = await fetch(`${API_URL}/descuentos/`);
+              const re = await apiFetch(`${API_URL}/descuentos/`);
               if (re.ok) ctx.estrategias = await re.json();
             } catch {}
             try {
-              const rg = await fetch(`${API_URL}/gruposdescuento/`);
+              const rg = await apiFetch(`${API_URL}/gruposdescuento/`);
               if (rg.ok) ctx.grupos = await rg.json();
             } catch {}
             return ctx;
@@ -2815,14 +2930,14 @@ function MantenimientoSection({ setStatus }) {
                 addLog(`Fila ${nFila}: estrategia ${iddescuento} / grupo ${idgrupodescuento} → ya existe, se omite (actualizar = NO)`, "info");
                 return "omitido";
               }
-              const r = await fetch(`${API_URL}/descuentos/detalle/${existente.id}`, {
+              const r = await apiFetch(`${API_URL}/descuentos/detalle/${existente.id}`, {
                 method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
               });
               if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
               addLog(`Fila ${nFila}: estrategia ${iddescuento} / grupo ${idgrupodescuento} → ACTUALIZADO (${descuento}%)`, "success");
               return "actualizado";
             } else {
-              const r = await fetch(`${API_URL}/descuentos/detalle`, {
+              const r = await apiFetch(`${API_URL}/descuentos/detalle`, {
                 method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
               });
               if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
@@ -2853,11 +2968,11 @@ function MantenimientoSection({ setStatus }) {
           cargarContexto: async () => {
             const ctx = { productos: [], fabricantes: [] };
             try {
-              const r = await fetch(`${API_URL}/competencia/productos`);
+              const r = await apiFetch(`${API_URL}/competencia/productos`);
               if (r.ok) ctx.productos = await r.json();
             } catch {}
             try {
-              const rf = await fetch(`${API_URL}/competencia/fabricantes`);
+              const rf = await apiFetch(`${API_URL}/competencia/fabricantes`);
               if (rf.ok) ctx.fabricantes = await rf.json();
             } catch {}
             return ctx;
@@ -2901,14 +3016,14 @@ function MantenimientoSection({ setStatus }) {
                 addLog(`Fila ${nFila}: "${referencia}" → ya existe, se omite (actualizar = NO)`, "info");
                 return "omitido";
               }
-              const r = await fetch(`${API_URL}/competencia/productos/${existente.id}`, {
+              const r = await apiFetch(`${API_URL}/competencia/productos/${existente.id}`, {
                 method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
               });
               if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
               addLog(`Fila ${nFila}: "${referencia}" → ACTUALIZADO`, "success");
               return "actualizado";
             } else {
-              const r = await fetch(`${API_URL}/competencia/productos`, {
+              const r = await apiFetch(`${API_URL}/competencia/productos`, {
                 method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
               });
               if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
@@ -3470,13 +3585,26 @@ function ConfiguracionesVariasSection({ config, setConfig, setStatus }) {
   );
 }
 
-function OpcionesScreen({ estilos, setEstilos, configVarias, setConfigVarias, onVolver, setStatus, statusMessage }) {
+function OpcionesScreen({ estilos, setEstilos, estilosImprimir, setEstilosImprimir, configVarias, setConfigVarias, onVolver, setStatus, statusMessage }) {
   const [seccion, setSeccion] = useState("estilos");
-  const [draft, setDraft] = useState(estilos);
+  // Pestaña de estilos activa: "pantalla" o "imprimir"
+  const [estilosTab, setEstilosTab] = useState("pantalla");
+  // Conjunto de estilos y su setter según la pestaña activa
+  const estilosActivos = estilosTab === "imprimir" ? estilosImprimir : estilos;
+  const setEstilosActivos = estilosTab === "imprimir" ? setEstilosImprimir : setEstilos;
+
+  const [draft, setDraft] = useState(estilosActivos);
   const [confirmReset, setConfirmReset] = useState(false);
 
+  // Al cambiar de pestaña, recargar el borrador con los estilos de esa pestaña
+  useEffect(() => {
+    setDraft(estilosTab === "imprimir" ? estilosImprimir : estilos);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estilosTab]);
+
   const aplicar = () => {
-    setEstilos(draft);
+    setEstilosActivos(draft);
+    setStatus && setStatus(`Estilos "${estilosTab === "imprimir" ? "Imprimir" : "En pantalla"}" guardados`, "success");
   };
 
   const resetear = () => {
@@ -3486,11 +3614,11 @@ function OpcionesScreen({ estilos, setEstilos, configVarias, setConfigVarias, on
   const confirmarReset = () => {
     const def = JSON.parse(JSON.stringify(ESTILOS_DEFAULT));
     setDraft(def);
-    setEstilos(def);
+    setEstilosActivos(def);
     setConfirmReset(false);
   };
 
-  const hayCambios = JSON.stringify(draft) !== JSON.stringify(estilos);
+  const hayCambios = JSON.stringify(draft) !== JSON.stringify(estilosActivos);
 
   const actualizar = (nat, campo, valor) => {
     setDraft(d => ({ ...d, [nat]: { ...d[nat], [campo]: valor } }));
@@ -3539,7 +3667,7 @@ function OpcionesScreen({ estilos, setEstilos, configVarias, setConfigVarias, on
           {seccion === "estilos" && (
             <div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, borderBottom: "2px solid #2563eb", paddingBottom: 8 }}>
-                <h2 style={{ fontSize: 18, fontWeight: 700, color: "#171717", margin: 0 }}>Configurar Estilos</h2>
+                <h2 style={{ fontSize: 18, fontWeight: 700, color: "#171717", margin: 0 }}>Configurar Estilos <span style={{ fontSize: 13, fontWeight: 500, color: "#64748b" }}>· {estilosTab === "imprimir" ? "Imprimir" : "En pantalla"}</span></h2>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <button onClick={() => {
                       // Exportar estilos a fichero JSON
@@ -3598,9 +3726,27 @@ function OpcionesScreen({ estilos, setEstilos, configVarias, setConfigVarias, on
                   </button>
                 </div>
               </div>
-              <p style={{ color: "#475569", lineHeight: 1.6, marginBottom: 20, fontSize: 12 }}>
-                Personaliza la apariencia de cada tipo de línea (naturaleza). Los cambios se guardan en el navegador (localStorage) y se aplican al activar "Aplicar Estructura" en el presupuesto.
+              <p style={{ color: "#475569", lineHeight: 1.6, marginBottom: 16, fontSize: 12 }}>
+                Personaliza la apariencia de cada tipo de línea (naturaleza). Los cambios se guardan en el navegador (localStorage).
+                Hay dos conjuntos independientes: <strong>En pantalla</strong> (se aplica al activar "Aplicar Estructura" en el presupuesto) e <strong>Imprimir</strong> (se usa para el Excel que genera Presupuesto → Imprimir).
               </p>
+
+              {/* Pestañas: En pantalla / Imprimir */}
+              <div style={{ display: "flex", gap: 4, marginBottom: 18, borderBottom: "1px solid #e2e8f0" }}>
+                {[{ id: "pantalla", label: "En pantalla", icon: Eye }, { id: "imprimir", label: "Imprimir", icon: Printer }].map(t => (
+                  <button key={t.id} onClick={() => setEstilosTab(t.id)}
+                    style={{
+                      padding: "8px 18px", fontSize: 13, cursor: "pointer",
+                      border: "none", background: "transparent",
+                      borderBottom: estilosTab === t.id ? "3px solid #2563eb" : "3px solid transparent",
+                      color: estilosTab === t.id ? "#2563eb" : "#64748b",
+                      fontWeight: estilosTab === t.id ? 700 : 500,
+                      marginBottom: -1,
+                    }}>
+                    <BtnContent icon={t.icon} iconColor={estilosTab === t.id ? "#2563eb" : "#64748b"}>{t.label}</BtnContent>
+                  </button>
+                ))}
+              </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
                 {NATURALEZAS_CON_ESTILO.map(nat => {
@@ -3954,9 +4100,9 @@ const ESTILOS_DEFAULT = {
 };
 
 // Cargar estilos guardados en localStorage o usar los por defecto
-function cargarEstilos() {
+function cargarEstilosKey(clave) {
   try {
-    const guardado = typeof localStorage !== "undefined" ? localStorage.getItem("estilosNaturaleza") : null;
+    const guardado = typeof localStorage !== "undefined" ? localStorage.getItem(clave) : null;
     if (guardado) {
       const parsed = JSON.parse(guardado);
       // Mezcla con defaults para campos que falten
@@ -3970,13 +4116,22 @@ function cargarEstilos() {
   return JSON.parse(JSON.stringify(ESTILOS_DEFAULT));
 }
 
-function guardarEstilos(estilos) {
+function guardarEstilosKey(clave, estilos) {
   try {
     if (typeof localStorage !== "undefined") {
-      localStorage.setItem("estilosNaturaleza", JSON.stringify(estilos));
+      localStorage.setItem(clave, JSON.stringify(estilos));
     }
   } catch (e) { /* ignore */ }
 }
+
+// Estilos "En pantalla" (los de siempre)
+function cargarEstilos() { return cargarEstilosKey("estilosNaturaleza"); }
+function guardarEstilos(estilos) { guardarEstilosKey("estilosNaturaleza", estilos); }
+
+// Estilos "Imprimir" (para el Excel de impresión). Si no hay guardados aún,
+// parten de los mismos valores por defecto que los de pantalla.
+function cargarEstilosImprimir() { return cargarEstilosKey("estilosNaturalezaImprimir"); }
+function guardarEstilosImprimir(estilos) { guardarEstilosKey("estilosNaturalezaImprimir", estilos); }
 
 // Cargar presupuesto guardado en localStorage
 function cargarPresupuestoLocal() {
@@ -4077,7 +4232,7 @@ function filasVacias() {
 async function obtenerSiguienteNumero(ano) {
   try {
     const yr = ano || getAnoFiscal();
-    const res = await fetch(`${API_URL}/presupuestos/?busqueda=`);
+    const res = await apiFetch(`${API_URL}/presupuestos/?busqueda=`);
     if (!res.ok) throw new Error("Error " + res.status);
     const lista = await res.json();
     // Filtrar solo los del año indicado
@@ -5418,7 +5573,7 @@ function AplicarDescuentosDialog({ rows, onClose, onApply }) {
   // Carga de gruposdescuento (para mostrar DGL1 y DGL2 por código)
   const [gruposBD, setGruposBD] = useState([]);
   useEffect(() => {
-    fetch(`${API_URL}/gruposdescuento/`)
+    apiFetch(`${API_URL}/gruposdescuento/`)
       .then(r => r.ok ? r.json() : [])
       .then(setGruposBD)
       .catch(() => setGruposBD([]));
@@ -5633,93 +5788,27 @@ function LeerPresupuestosDialog({ onClose, onCargar, setStatus }) {
 
   // ── Redimensión de columnas de la lista ──
   const ANCHOS_INI = { numerocompleto: 150, revision: 60, fecha: 130, titulo: 240, cliente: 200, total: 110, id: 60 };
-  const [anchosCol, setAnchosCol] = useState(ANCHOS_INI);
-  const resizeRef = useRef(null);
-  const onResizeCol = (e, key) => {
-    e.preventDefault(); e.stopPropagation();
-    const startX = e.clientX;
-    const startW = anchosCol[key] ?? 100;
-    resizeRef.current = { key, startX, startW };
-    const onMove = (ev) => {
-      if (!resizeRef.current) return;
-      const { key: k, startX: sx, startW: sw } = resizeRef.current;
-      setAnchosCol(prev => ({ ...prev, [k]: Math.max(40, sw + (ev.clientX - sx)) }));
-    };
-    const onUp = () => {
-      resizeRef.current = null;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = ""; document.body.style.userSelect = "";
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    document.body.style.cursor = "col-resize"; document.body.style.userSelect = "none";
-  };
-  const Resizer = ({ colKey }) => (
-    <div
-      onMouseDown={(e) => onResizeCol(e, colKey)}
-      onDoubleClick={(e) => { e.stopPropagation(); setAnchosCol(prev => ({ ...prev, [colKey]: ANCHOS_INI[colKey] })); }}
-      title="Arrastra para redimensionar (doble clic para restablecer)"
-      onMouseEnter={e => { e.currentTarget.style.background = "#2563eb"; }}
-      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-      style={{ position: "absolute", top: 0, right: -4, width: 9, height: "100%", cursor: "col-resize", zIndex: 6, transition: "background 0.1s" }}
-    />
-  );
+  const { anchosCol, Resizer } = useColumnResize(ANCHOS_INI);
 
-  // ── Ordenación por columna ──
-  const [orden, setOrden] = useState({ col: null, dir: "asc" }); // col: numerocompleto|fecha|cliente|id
-  const ordenarPor = (col) => {
-    setOrden(o => o.col === col ? { col, dir: o.dir === "asc" ? "desc" : "asc" } : { col, dir: "asc" });
-  };
-  const FlechaOrden = ({ col }) => {
-    if (orden.col !== col) return null;
-    return <span style={{ marginLeft: 4, fontSize: 10 }}>{orden.dir === "asc" ? "▲" : "▼"}</span>;
-  };
-  const thOrden = (col, extra = {}) => ({
-    cursor: "pointer", userSelect: "none",
-    background: orden.col === col ? "#dbeafe" : "transparent",
-    ...extra,
-  });
 
-  // Presupuestos ordenados según la columna activa
-  const presupuestosOrdenados = (() => {
-    if (!orden.col) return presupuestos;
-    const arr = [...presupuestos];
-    const dir = orden.dir === "asc" ? 1 : -1;
-    const valor = (p) => {
-      switch (orden.col) {
-        case "numerocompleto":
-          return [String(p.numerocompleto || p.numero || "").toUpperCase(), Number(p.revision) || 0];
-        case "fecha":
-          return p.fecha ? new Date(p.fecha).getTime() : 0;
-        case "cliente":
-          return String(p.nombrecomun || p.razonsocial || "").toUpperCase();
-        case "id":
-          return Number(p.id) || 0;
-        default:
-          return 0;
-      }
-    };
-    arr.sort((a, b) => {
-      const va = valor(a), vb = valor(b);
-      if (Array.isArray(va)) {
-        if (va[0] < vb[0]) return -1 * dir;
-        if (va[0] > vb[0]) return 1 * dir;
-        return (va[1] - vb[1]) * dir;
-      }
-      if (va < vb) return -1 * dir;
-      if (va > vb) return 1 * dir;
-      return 0;
-    });
-    return arr;
-  })();
+  // ── Ordenación por columna (Nº completo+revisión, fecha, cliente, ID) ──
+  const valorOrdenPresup = (p, col) => {
+    switch (col) {
+      case "numerocompleto": return [String(p.numerocompleto || p.numero || "").toUpperCase(), Number(p.revision) || 0];
+      case "fecha":          return p.fecha ? new Date(p.fecha).getTime() : 0;
+      case "cliente":        return String(p.nombrecomun || p.razonsocial || "").toUpperCase();
+      case "id":             return Number(p.id) || 0;
+      default:               return 0;
+    }
+  };
+  const { ordenados: presupuestosOrdenados, ordenarPor, FlechaOrden, thOrden } = useTableSort(presupuestos, valorOrdenPresup);
 
   // Cargar el detalle cuando se selecciona un presupuesto y se va a la pestaña detalle
   useEffect(() => {
     if (tab !== "detalle" || !seleccionado) { setDetalle(null); return; }
     setCargandoDetalle(true);
     setDetalle(null);
-    fetch(`${API_URL}/presupuestos/${seleccionado.id}/completo`)
+    apiFetch(`${API_URL}/presupuestos/${seleccionado.id}/completo`)
       .then(r => r.ok ? r.json() : Promise.reject(new Error("Error " + r.status)))
       .then(d => setDetalle(d))
       .catch(e => setStatus && setStatus("Error cargando detalle: " + e.message, "error"))
@@ -5761,7 +5850,7 @@ function LeerPresupuestosDialog({ onClose, onCargar, setStatus }) {
     setBorrando(true);
     setStatus && setStatus(`Borrando presupuesto ${seleccionado.numerocompleto || seleccionado.numero}...`, "working");
     try {
-      const res = await fetch(`${API_URL}/presupuestos/${seleccionado.id}`, { method: "DELETE" });
+      const res = await apiFetch(`${API_URL}/presupuestos/${seleccionado.id}`, { method: "DELETE" });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         throw new Error(err?.detail || "HTTP " + res.status);
@@ -5785,7 +5874,7 @@ function LeerPresupuestosDialog({ onClose, onCargar, setStatus }) {
     setError(null);
     setStatus && setStatus(`Leyendo presupuesto ${seleccionado.numerocompleto || seleccionado.numero}...`, "working");
     try {
-      const res = await fetch(`${API_URL}/presupuestos/${seleccionado.id}/completo`);
+      const res = await apiFetch(`${API_URL}/presupuestos/${seleccionado.id}/completo`);
       if (!res.ok) throw new Error("Error " + res.status);
       const data = await res.json();
       onCargar(data);
@@ -6085,7 +6174,7 @@ function ContactosDialog({ onClose, setStatus }) {
     setCargando(true); setError(null);
     try {
       const params = filtroClienteId ? `?idcliente=${filtroClienteId}` : "";
-      const res = await fetch(`${API_URL}/contactos/${params}`);
+      const res = await apiFetch(`${API_URL}/contactos/${params}`);
       if (!res.ok) throw new Error("HTTP " + res.status);
       const data = await res.json();
       setContactos(data);
@@ -6102,7 +6191,7 @@ function ContactosDialog({ onClose, setStatus }) {
 
   // Cargar lista de clientes una vez para el selector
   useEffect(() => {
-    fetch(`${API_URL}/clientes/`)
+    apiFetch(`${API_URL}/clientes/`)
       .then(r => r.ok ? r.json() : [])
       .then(setClientes)
       .catch(() => setClientes([]));
@@ -6164,7 +6253,7 @@ function ContactosDialog({ onClose, setStatus }) {
   const borrar = async (id, nombre) => {
     setStatus && setStatus(`Borrando "${nombre}"...`, "working");
     try {
-      const res = await fetch(`${API_URL}/contactos/${id}`, { method: "DELETE" });
+      const res = await apiFetch(`${API_URL}/contactos/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("HTTP " + res.status);
       setStatus && setStatus(`Contacto "${nombre}" borrado`, "success");
       setConfirmBorrar(null);
@@ -6354,7 +6443,7 @@ function SelectorClienteDialog({ onClose, onSelect, setStatus }) {
 
   useEffect(() => {
     setCargando(true);
-    fetch(`${API_URL}/clientes/`)
+    apiFetch(`${API_URL}/clientes/`)
       .then(r => r.ok ? r.json() : [])
       .then(setClientes)
       .catch(() => setClientes([]))
@@ -6443,7 +6532,7 @@ function SelectorContactoDialog({ onClose, onSelect, setStatus }) {
   useEffect(() => {
     setCargando(true);
     const params = filtroClienteId ? `?idcliente=${filtroClienteId}` : "";
-    fetch(`${API_URL}/contactos/${params}`)
+    apiFetch(`${API_URL}/contactos/${params}`)
       .then(r => r.ok ? r.json() : [])
       .then(setContactos)
       .catch(() => setContactos([]))
@@ -6451,7 +6540,7 @@ function SelectorContactoDialog({ onClose, onSelect, setStatus }) {
   }, [filtroClienteId]);
 
   useEffect(() => {
-    fetch(`${API_URL}/clientes/`).then(r => r.ok ? r.json() : []).then(setClientes).catch(() => setClientes([]));
+    apiFetch(`${API_URL}/clientes/`).then(r => r.ok ? r.json() : []).then(setClientes).catch(() => setClientes([]));
   }, []);
 
   const filtrados = contactos.filter(c =>
@@ -6553,7 +6642,7 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
 
   // Cargar provincias para el desplegable del campo idprovincia
   useEffect(() => {
-    fetch(`${API_URL}/provincias/`)
+    apiFetch(`${API_URL}/provincias/`)
       .then(r => r.ok ? r.json() : [])
       .then(data => { if (Array.isArray(data)) setProvincias(data); })
       .catch(() => {});
@@ -6570,7 +6659,7 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
     setCargando(true); setError(null);
     setStatus && setStatus("Cargando clientes desde la base de datos...", "working");
     try {
-      const res = await fetch(`${API_URL}/clientes/`);
+      const res = await apiFetch(`${API_URL}/clientes/`);
       if (!res.ok) throw new Error("Error " + res.status);
       const data = await res.json();
       setClientes(data);
@@ -6674,7 +6763,7 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
     setComprobandoUsoCliente(true);
     setStatus && setStatus(`Comprobando uso de "${nombre}"...`, "working");
     try {
-      const res = await fetch(`${API_URL}/clientes/${cli.id}/uso`);
+      const res = await apiFetch(`${API_URL}/clientes/${cli.id}/uso`);
       if (res.ok) {
         const data = await res.json();
         if (!data.borrable) {
@@ -6696,7 +6785,7 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
     if (!confirmBorrarCliente) return;
     setBorrandoCliente(true);
     try {
-      const res = await fetch(`${API_URL}/clientes/${confirmBorrarCliente.id}`, { method: "DELETE" });
+      const res = await apiFetch(`${API_URL}/clientes/${confirmBorrarCliente.id}`, { method: "DELETE" });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         throw new Error(err?.detail || "HTTP " + res.status);
@@ -6716,7 +6805,7 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
     setGuardando(true); setError(null);
     setStatus && setStatus(`Guardando ${cambios.length} cambio${cambios.length > 1 ? "s" : ""} en la base de datos...`, "working");
     try {
-      const res = await fetch(`${API_URL}/clientes/batch-update`, {
+      const res = await apiFetch(`${API_URL}/clientes/batch-update`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(cambios),
@@ -7173,43 +7262,23 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus, busquedaInicial })
 
   // Anchos de columna redimensionables (clave → px). Por defecto los iniciales.
   const ANCHOS_INI = { masusado: 70, referencia: 150, pvp: 90, fechapvp: 95, grupodescuento: 70, descripcion: 320, id: 60 };
-  const [anchosCol, setAnchosCol] = useState(ANCHOS_INI);
-  const resizeRef = useRef(null);
-  const onResizeCol = (e, key) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const startX = e.clientX;
-    const startW = anchosCol[key] ?? 100;
-    resizeRef.current = { key, startX, startW };
-    const onMove = (ev) => {
-      if (!resizeRef.current) return;
-      const { key: k, startX: sx, startW: sw } = resizeRef.current;
-      const nuevo = Math.max(40, sw + (ev.clientX - sx));
-      setAnchosCol(prev => ({ ...prev, [k]: nuevo }));
-    };
-    const onUp = () => {
-      resizeRef.current = null;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
+  const { anchosCol, Resizer } = useColumnResize(ANCHOS_INI);
+
+  // ── Ordenación por columna ──
+  const valorOrdenProducto = (p, col) => {
+    switch (col) {
+      case "masusado":       return Number(p.masusado) || 0;
+      case "referencia":     return String(p.referencia || "").toUpperCase();
+      case "pvp":            return Number(p.pvp) || 0;
+      case "fechapvp":       return p.fechapvp ? new Date(p.fechapvp).getTime() : 0;
+      case "grupodescuento": return String(p.grupodescuento || "").toUpperCase();
+      case "descripcion":    return String(p.descripcion || "").toUpperCase();
+      case "id":             return Number(p.id) || 0;
+      default:               return 0;
+    }
   };
-  // Componente del tirador de redimensión en el borde derecho de una cabecera
-  const Resizer = ({ colKey }) => (
-    <div
-      onMouseDown={(e) => onResizeCol(e, colKey)}
-      onDoubleClick={(e) => { e.stopPropagation(); setAnchosCol(prev => ({ ...prev, [colKey]: ANCHOS_INI[colKey] })); }}
-      title="Arrastra para redimensionar (doble clic para restablecer)"
-      onMouseEnter={e => { e.currentTarget.style.background = "#2563eb"; }}
-      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-      style={{ position: "absolute", top: 0, right: -4, width: 9, height: "100%", cursor: "col-resize", zIndex: 6, transition: "background 0.1s" }}
-    />
-  );
+  const { ordenados: productosOrdenados, ordenarPor, FlechaOrden, thOrden } = useTableSort(productos, valorOrdenProducto);
+
 
   useEffect(() => {
     const t = setTimeout(() => cargarLista(), 300);
@@ -7266,7 +7335,7 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus, busquedaInicial })
     setBorrando(true);
     setStatus && setStatus(`Borrando producto "${seleccionado.referencia}"...`, "working");
     try {
-      const res = await fetch(`${API_URL}/productos/${seleccionado.id}`, { method: "DELETE" });
+      const res = await apiFetch(`${API_URL}/productos/${seleccionado.id}`, { method: "DELETE" });
       if (!res.ok) {
         const err = await res.json().catch(() => null);
         throw new Error(err?.detail || "HTTP " + res.status);
@@ -7358,13 +7427,13 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus, busquedaInicial })
             <thead style={{ position: "sticky", top: 0, background: "#fafafa", zIndex: 1, borderBottom: "1px solid #e5e5e5" }}>
               <tr>
                 <th style={{ width: 32, padding: "8px 6px", color: "#171717" }}></th>
-                <th style={{ position: "relative", width: anchosCol.masusado, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }} title="Más usado">Más Us.<Resizer colKey="masusado" /></th>
-                <th style={{ position: "relative", width: anchosCol.referencia, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>Referencia<Resizer colKey="referencia" /></th>
-                <th style={{ position: "relative", width: anchosCol.pvp, padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>PVP<Resizer colKey="pvp" /></th>
-                <th style={{ position: "relative", width: anchosCol.fechapvp, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }} title="Fecha del PVP">Fecha PVP<Resizer colKey="fechapvp" /></th>
-                <th style={{ position: "relative", width: anchosCol.grupodescuento, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>Grupo Dto.<Resizer colKey="grupodescuento" /></th>
-                <th style={{ position: "relative", width: anchosCol.descripcion, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>Descripción<Resizer colKey="descripcion" /></th>
-                <th style={{ position: "relative", width: anchosCol.id, padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>ID</th>
+                <th onClick={() => ordenarPor("masusado")} style={thOrden("masusado", { position: "relative", width: anchosCol.masusado, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" })} title="Más usado">Más Us.<FlechaOrden col="masusado" /><Resizer colKey="masusado" /></th>
+                <th onClick={() => ordenarPor("referencia")} style={thOrden("referencia", { position: "relative", width: anchosCol.referencia, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" })} title="Ordenar por referencia">Referencia<FlechaOrden col="referencia" /><Resizer colKey="referencia" /></th>
+                <th onClick={() => ordenarPor("pvp")} style={thOrden("pvp", { position: "relative", width: anchosCol.pvp, padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" })} title="Ordenar por PVP">PVP<FlechaOrden col="pvp" /><Resizer colKey="pvp" /></th>
+                <th onClick={() => ordenarPor("fechapvp")} style={thOrden("fechapvp", { position: "relative", width: anchosCol.fechapvp, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" })} title="Ordenar por fecha del PVP">Fecha PVP<FlechaOrden col="fechapvp" /><Resizer colKey="fechapvp" /></th>
+                <th onClick={() => ordenarPor("grupodescuento")} style={thOrden("grupodescuento", { position: "relative", width: anchosCol.grupodescuento, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" })} title="Ordenar por grupo descuento">Grupo Dto.<FlechaOrden col="grupodescuento" /><Resizer colKey="grupodescuento" /></th>
+                <th onClick={() => ordenarPor("descripcion")} style={thOrden("descripcion", { position: "relative", width: anchosCol.descripcion, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 })} title="Ordenar por descripción">Descripción<FlechaOrden col="descripcion" /><Resizer colKey="descripcion" /></th>
+                <th onClick={() => ordenarPor("id")} style={thOrden("id", { position: "relative", width: anchosCol.id, padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" })} title="Ordenar por ID">ID<FlechaOrden col="id" /></th>
               </tr>
             </thead>
             <tbody>
@@ -7376,7 +7445,7 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus, busquedaInicial })
                   {busqueda ? "No hay productos que coincidan." : "No hay productos en la base de datos."}
                 </td></tr>
               )}
-              {!cargando && productos.map(p => {
+              {!cargando && productosOrdenados.map(p => {
                 const isSel = seleccionado?.id === p.id;
                 return (
                   <tr key={p.id}
@@ -7416,7 +7485,7 @@ function LeerProductoDialog({ onClose, onInsertar, setStatus, busquedaInicial })
               setComprobandoUso(true);
               setStatus && setStatus(`Comprobando referencias del producto...`, "working");
               try {
-                const res = await fetch(`${API_URL}/productos/${seleccionado.id}/uso`);
+                const res = await apiFetch(`${API_URL}/productos/${seleccionado.id}/uso`);
                 if (!res.ok) throw new Error("HTTP " + res.status);
                 const data = await res.json();
                 if (!data.borrable) {
@@ -7522,7 +7591,7 @@ function GuardarElementoDialog({ filasSeleccionadas, onClose, setStatus }) {
     setGuardando(true);
     setStatus && setStatus(`Guardando elemento "${nombre}" con ${productos.length} producto${productos.length > 1 ? "s" : ""}...`, "working");
     try {
-      const res = await fetch(`${API_URL}/elementos/`, {
+      const res = await apiFetch(`${API_URL}/elementos/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(construirPayload()),
@@ -7556,7 +7625,7 @@ function GuardarElementoDialog({ filasSeleccionadas, onClose, setStatus }) {
     setStatus && setStatus(`Sobrescribiendo elemento "${nombre.trim()}"...`, "working");
     try {
       // 1) Localizar el id del elemento existente por nombre exacto
-      const resBuscar = await fetch(`${API_URL}/elementos/?busqueda=${encodeURIComponent(nombre.trim())}`);
+      const resBuscar = await apiFetch(`${API_URL}/elementos/?busqueda=${encodeURIComponent(nombre.trim())}`);
       const lista = resBuscar.ok ? await resBuscar.json() : [];
       const existente = (Array.isArray(lista) ? lista : []).find(
         el => String(el.nombre || "").trim().toLowerCase() === nombre.trim().toLowerCase()
@@ -7565,7 +7634,7 @@ function GuardarElementoDialog({ filasSeleccionadas, onClose, setStatus }) {
         throw new Error("No se encontró el elemento existente para sobrescribir");
       }
       // 2) PUT para actualizar (reemplaza cabecera y productos)
-      const res = await fetch(`${API_URL}/elementos/${existente.id}`, {
+      const res = await apiFetch(`${API_URL}/elementos/${existente.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(construirPayload()),
@@ -7731,42 +7800,22 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
 
   // ── Redimensión de columnas de la lista de elementos ──
   const ANCHOS_INI = { nombre: 260, grupo: 150, fecha: 130, descripcion: 220, productos: 80, id: 60 };
-  const [anchosCol, setAnchosCol] = useState(ANCHOS_INI);
-  const resizeRef = useRef(null);
-  const onResizeCol = (e, key) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const startX = e.clientX;
-    const startW = anchosCol[key] ?? 100;
-    resizeRef.current = { key, startX, startW };
-    const onMove = (ev) => {
-      if (!resizeRef.current) return;
-      const { key: k, startX: sx, startW: sw } = resizeRef.current;
-      const nuevo = Math.max(40, sw + (ev.clientX - sx));
-      setAnchosCol(prev => ({ ...prev, [k]: nuevo }));
-    };
-    const onUp = () => {
-      resizeRef.current = null;
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
+  const { anchosCol, Resizer } = useColumnResize(ANCHOS_INI);
+
+  // ── Ordenación por columna ──
+  const valorOrdenElemento = (el, col) => {
+    switch (col) {
+      case "nombre":      return String(el.nombre || "").toUpperCase();
+      case "grupo":       return String(el.grupo || grupoNombre(el.idgrupo) || "").toUpperCase();
+      case "fecha":       return el.fechamodificacion ? new Date(el.fechamodificacion).getTime() : 0;
+      case "descripcion": return String(el.descripcion || "").toUpperCase();
+      case "productos":   return Number(el.numproductos) || 0;
+      case "id":          return Number(el.id) || 0;
+      default:            return 0;
+    }
   };
-  const Resizer = ({ colKey }) => (
-    <div
-      onMouseDown={(e) => onResizeCol(e, colKey)}
-      onDoubleClick={(e) => { e.stopPropagation(); setAnchosCol(prev => ({ ...prev, [colKey]: ANCHOS_INI[colKey] })); }}
-      title="Arrastra para redimensionar (doble clic para restablecer)"
-      onMouseEnter={e => { e.currentTarget.style.background = "#2563eb"; }}
-      onMouseLeave={e => { e.currentTarget.style.background = "transparent"; }}
-      style={{ position: "absolute", top: 0, right: -4, width: 9, height: "100%", cursor: "col-resize", zIndex: 6, transition: "background 0.1s" }}
-    />
-  );
+  const { ordenados: elementosOrdenados, ordenarPor, FlechaOrden, thOrden } = useTableSort(elementos, valorOrdenElemento);
+
 
   // Elemento único seleccionado (si hay solo 1) - útil para acciones que requieren uno solo
   const seleccionado = selIds.size === 1
@@ -7779,7 +7828,7 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
     if (tab !== "detalle" || !seleccionado) { setDetalle(null); return; }
     setCargandoDetalle(true);
     setDetalle(null);
-    fetch(`${API_URL}/elementos/${seleccionado.id}`)
+    apiFetch(`${API_URL}/elementos/${seleccionado.id}`)
       .then(r => r.ok ? r.json() : Promise.reject(new Error("Error " + r.status)))
       .then(d => setDetalle(d))
       .catch(e => setStatus && setStatus("Error cargando detalle del elemento: " + e.message, "error"))
@@ -7793,7 +7842,7 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
 
   // Cargar grupos de elementos una vez al montar
   useEffect(() => {
-    fetch(`${API_URL}/gruposelementos/`)
+    apiFetch(`${API_URL}/gruposelementos/`)
       .then(r => r.ok ? r.json() : [])
       .then(setGrupos)
       .catch(() => setGrupos([]));
@@ -7855,7 +7904,7 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
     setInsertando(true);
     setStatus && setStatus(`Cargando elemento "${seleccionado.nombre}"...`, "working");
     try {
-      const res = await fetch(`${API_URL}/elementos/${seleccionado.id}`);
+      const res = await apiFetch(`${API_URL}/elementos/${seleccionado.id}`);
       if (!res.ok) throw new Error("Error " + res.status);
       const data = await res.json();
       onInsertar(data);
@@ -7877,7 +7926,7 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
     let ok = 0, errs = 0;
     for (const id of ids) {
       try {
-        const res = await fetch(`${API_URL}/elementos/${id}`, { method: "DELETE" });
+        const res = await apiFetch(`${API_URL}/elementos/${id}`, { method: "DELETE" });
         if (!res.ok) throw new Error("HTTP " + res.status);
         ok++;
       } catch (e) {
@@ -7900,7 +7949,7 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
     let ok = 0, errs = 0;
     for (const id of ids) {
       try {
-        const res = await fetch(`${API_URL}/elementos/${id}`, {
+        const res = await apiFetch(`${API_URL}/elementos/${id}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ idgrupo: grupoNuevoId }),
@@ -7927,7 +7976,7 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
       const payload = {};
       if (editar.nombre !== undefined) payload.nombre = editar.nombre;
       if (editar.descripcion !== undefined) payload.descripcion = editar.descripcion;
-      const res = await fetch(`${API_URL}/elementos/${seleccionado.id}`, {
+      const res = await apiFetch(`${API_URL}/elementos/${seleccionado.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -8005,12 +8054,12 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
             <thead style={{ position: "sticky", top: 0, background: "#fafafa", zIndex: 1, borderBottom: "1px solid #e5e5e5" }}>
               <tr>
                 <th style={{ width: 32, padding: "8px 6px", color: "#171717" }}></th>
-                <th style={{ position: "relative", width: anchosCol.nombre, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>Nombre<Resizer colKey="nombre" /></th>
-                <th style={{ position: "relative", width: anchosCol.grupo, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>Grupo Elementos<Resizer colKey="grupo" /></th>
-                <th style={{ position: "relative", width: anchosCol.fecha, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" }}>Fecha modificación<Resizer colKey="fecha" /></th>
-                <th style={{ position: "relative", width: anchosCol.descripcion, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 }}>Descripción<Resizer colKey="descripcion" /></th>
-                <th style={{ position: "relative", width: anchosCol.productos, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600 }}>Productos<Resizer colKey="productos" /></th>
-                <th style={{ width: anchosCol.id, padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600 }}>ID</th>
+                <th onClick={() => ordenarPor("nombre")} style={thOrden("nombre", { position: "relative", width: anchosCol.nombre, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 })} title="Ordenar por nombre">Nombre<FlechaOrden col="nombre" /><Resizer colKey="nombre" /></th>
+                <th onClick={() => ordenarPor("grupo")} style={thOrden("grupo", { position: "relative", width: anchosCol.grupo, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 })} title="Ordenar por grupo">Grupo Elementos<FlechaOrden col="grupo" /><Resizer colKey="grupo" /></th>
+                <th onClick={() => ordenarPor("fecha")} style={thOrden("fecha", { position: "relative", width: anchosCol.fecha, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, whiteSpace: "nowrap" })} title="Ordenar por fecha">Fecha modificación<FlechaOrden col="fecha" /><Resizer colKey="fecha" /></th>
+                <th onClick={() => ordenarPor("descripcion")} style={thOrden("descripcion", { position: "relative", width: anchosCol.descripcion, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600 })} title="Ordenar por descripción">Descripción<FlechaOrden col="descripcion" /><Resizer colKey="descripcion" /></th>
+                <th onClick={() => ordenarPor("productos")} style={thOrden("productos", { position: "relative", width: anchosCol.productos, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600 })} title="Ordenar por nº de productos">Productos<FlechaOrden col="productos" /><Resizer colKey="productos" /></th>
+                <th onClick={() => ordenarPor("id")} style={thOrden("id", { width: anchosCol.id, padding: "8px 10px", textAlign: "right", color: "#171717", fontWeight: 600 })} title="Ordenar por ID">ID<FlechaOrden col="id" /></th>
               </tr>
             </thead>
             <tbody>
@@ -8022,7 +8071,7 @@ function LeerElementoDialog({ onClose, onInsertar, setStatus }) {
                   {busqueda ? "No hay elementos que coincidan." : "No hay elementos en la base de datos."}
                 </td></tr>
               )}
-              {!cargando && elementos.map((el, idx) => {
+              {!cargando && elementosOrdenados.map((el, idx) => {
                 const isSel = selIds.has(el.id);
                 return (
                   <tr key={el.id}
@@ -8586,7 +8635,7 @@ function LoginDialog({ onClose, onLoginOk }) {
     setVerificando(true);
     setAviso(null);
     try {
-      const res = await fetch(`${API_URL}/usuarios/login`, {
+      const res = await apiFetch(`${API_URL}/usuarios/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ usuario: usuario.trim(), password: password || "" }),
@@ -8773,7 +8822,7 @@ function WelcomeScreen({ onLogin }) {
     setVerificando(true);
     setAviso(null);
     try {
-      const res = await fetch(`${API_URL}/usuarios/login`, {
+      const res = await apiFetch(`${API_URL}/usuarios/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ usuario: usuario.trim(), password: password || "" }),
@@ -9011,7 +9060,7 @@ function SiemensRefsDialog({ celdasTrabajadas, onClose, onComplete, setStatus })
     if (!refActual) return;
     setBusqBD({ buscando: true, existe: null });
     try {
-      const res = await fetch(`${API_URL}/productos/referencia/${encodeURIComponent(refActual.ref)}`);
+      const res = await apiFetch(`${API_URL}/productos/referencia/${encodeURIComponent(refActual.ref)}`);
       if (res.ok) {
         setBusqBD({ buscando: false, existe: true });
       } else if (res.status === 404) {
@@ -9158,7 +9207,7 @@ function ActualizarProductosDialog({ datos, onClose, setStatus }) {
     });
     if (Object.keys(payload).length === 0) return "omitido";
     try {
-      const r = await fetch(`${API_URL}/productos/${item.productoBD.id}`, {
+      const r = await apiFetch(`${API_URL}/productos/${item.productoBD.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -9373,7 +9422,7 @@ function AsistenteReferenciasDialog({ onClose, onInsertar, setStatus }) {
   // Cargar productos del asistente al abrir
   useEffect(() => {
     setCargandoProd(true);
-    fetch(`${API_URL}/asistentes/productos`)
+    apiFetch(`${API_URL}/asistentes/productos`)
       .then(r => r.ok ? r.json() : [])
       .then(data => { setProductos(Array.isArray(data) ? data : []); })
       .catch(() => setStatus && setStatus("No se pudieron cargar los productos del asistente", "error"))
@@ -9388,7 +9437,7 @@ function AsistenteReferenciasDialog({ onClose, onInsertar, setStatus }) {
     setDatosBD(null);
     setNoEncontrado(false);
     setCargandoOpc(true);
-    fetch(`${API_URL}/asistentes/opciones/${p.id}`)
+    apiFetch(`${API_URL}/asistentes/opciones/${p.id}`)
       .then(r => r.ok ? r.json() : [])
       .then(data => {
         const arr = Array.isArray(data) ? [...data] : [];
@@ -9633,7 +9682,7 @@ function EstrategiasDescuentoDialog({ onClose, onAplicar, setStatus }) {
 
   const cargarLista = () => {
     setCargando(true);
-    fetch(`${API_URL}/descuentos/`)
+    apiFetch(`${API_URL}/descuentos/`)
       .then(r => r.ok ? r.json() : [])
       .then(data => {
         const arr = Array.isArray(data) ? data : [];
@@ -9647,12 +9696,12 @@ function EstrategiasDescuentoDialog({ onClose, onAplicar, setStatus }) {
   useEffect(() => { cargarLista(); }, []);
   // Catálogo de grupos descuento (para el editor)
   useEffect(() => {
-    fetch(`${API_URL}/gruposdescuento/`).then(r => r.ok ? r.json() : []).then(d => setGrupos(Array.isArray(d) ? d : [])).catch(() => {});
+    apiFetch(`${API_URL}/gruposdescuento/`).then(r => r.ok ? r.json() : []).then(d => setGrupos(Array.isArray(d) ? d : [])).catch(() => {});
   }, []);
 
   const seleccionar = (e) => {
     setSel(e); setModo("ver"); setCargandoDet(true);
-    fetch(`${API_URL}/descuentos/${e.id}`)
+    apiFetch(`${API_URL}/descuentos/${e.id}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => { setDetalle(data ? data.detalle : []); })
       .catch(() => setDetalle([]))
@@ -9706,7 +9755,7 @@ function EstrategiasDescuentoDialog({ onClose, onAplicar, setStatus }) {
   const borrar = async () => {
     if (!sel) return;
     try {
-      const r = await fetch(`${API_URL}/descuentos/${sel.id}`, { method: "DELETE" });
+      const r = await apiFetch(`${API_URL}/descuentos/${sel.id}`, { method: "DELETE" });
       if (!r.ok) throw new Error("HTTP " + r.status);
       setStatus && setStatus("Estrategia borrada", "success");
       setSel(null); setDetalle([]); setConfirmBorrar(false); cargarLista();
@@ -9726,7 +9775,7 @@ function EstrategiasDescuentoDialog({ onClose, onAplicar, setStatus }) {
       })),
     };
     try {
-      const r = await fetch(`${API_URL}/descuentos/`, {
+      const r = await apiFetch(`${API_URL}/descuentos/`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       });
       if (!r.ok) throw new Error("HTTP " + r.status);
@@ -9892,7 +9941,7 @@ function EquivalenciaCompetenciaDialog({ datos, onClose, onSustituir, onCrearFil
 
   useEffect(() => {
     setCargando(true);
-    fetch(`${API_URL}/competencia/equivalencias?referencia=${encodeURIComponent(referencia)}`)
+    apiFetch(`${API_URL}/competencia/equivalencias?referencia=${encodeURIComponent(referencia)}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => setResultado(data))
       .catch(() => setStatus && setStatus("Error consultando equivalencias", "error"))
@@ -10054,7 +10103,7 @@ function GestorEquivalenciasDialog({ onClose, setStatus }) {
     const seq = ++seqC.current;
     const t = setTimeout(async () => {
       try {
-        const r = await fetch(`${API_URL}/competencia/buscar-competencia?q=${encodeURIComponent(q)}`);
+        const r = await apiFetch(`${API_URL}/competencia/buscar-competencia?q=${encodeURIComponent(q)}`);
         const data = r.ok ? await r.json() : [];
         if (seq === seqC.current) setResComp(Array.isArray(data) ? data : []);
       } catch { if (seq === seqC.current) setResComp([]); }
@@ -10071,7 +10120,7 @@ function GestorEquivalenciasDialog({ onClose, setStatus }) {
     const seq = ++seqS.current;
     const t = setTimeout(async () => {
       try {
-        const r = await fetch(`${API_URL}/competencia/buscar-siemens?q=${encodeURIComponent(q)}`);
+        const r = await apiFetch(`${API_URL}/competencia/buscar-siemens?q=${encodeURIComponent(q)}`);
         const data = r.ok ? await r.json() : [];
         if (seq === seqS.current) setResSiem(Array.isArray(data) ? data : []);
       } catch { if (seq === seqS.current) setResSiem([]); }
@@ -10102,7 +10151,7 @@ function GestorEquivalenciasDialog({ onClose, setStatus }) {
         tipo: tipo.trim() || null,
         sobreescribir,
       };
-      const r = await fetch(`${API_URL}/competencia/equivalencias/crear`, {
+      const r = await apiFetch(`${API_URL}/competencia/equivalencias/crear`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
       });
       if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
@@ -10407,7 +10456,7 @@ function AppInner() {
 
   // Cargar países al iniciar (para selector "País cliente final")
   useEffect(() => {
-    fetch(`${API_URL}/paises/`).then(r => r.ok ? r.json() : []).then(data => {
+    apiFetch(`${API_URL}/paises/`).then(r => r.ok ? r.json() : []).then(data => {
       if (Array.isArray(data)) setPaisesList(data);
     }).catch(() => {});
   }, []);
@@ -10763,6 +10812,7 @@ function AppInner() {
   const [confirmSobreescribir, setConfirmSobreescribir] = useState(false);
   const [guardandoPresup, setGuardandoPresup] = useState(false);
   const [estilos, setEstilos] = useState(cargarEstilos);
+  const [estilosImprimir, setEstilosImprimir] = useState(cargarEstilosImprimir);
   const [descCorta, setDescCorta] = useState(false);
   const [ayudaSeccion, setAyudaSeccion] = useState("intro");
 
@@ -10780,30 +10830,84 @@ function AppInner() {
     }
   }, []);
 
-  // Conectar setStatus al puente global para que el interceptor de fetch avise en cada consulta a la BD
+  // Conectar setStatus al indicador de actividad de la BD (apiFetch avisa por aquí)
   useEffect(() => {
-    bdBridge.setStatus = setStatus;
-    return () => { bdBridge.setStatus = null; };
+    return bdActivity.subscribe(setStatus);
   }, [setStatus]);
+
+  // Autoguardado del borrador: guarda el presupuesto en curso en localStorage
+  // de forma automática (con un pequeño retardo para no escribir en cada tecla).
+  // Así, si se recarga la pestaña o se cierra por error, se recupera al volver.
+  useEffect(() => {
+    const t = setTimeout(() => { guardarPresupuestoLocal(presupuesto, rows); }, 1500);
+    return () => clearTimeout(t);
+  }, [rows, presupuesto]);
+
+  // Avisar una vez al arrancar si se ha recuperado un borrador del navegador.
+  // Se muestra con un pequeño retardo para no competir con el aviso de conexión.
+  useEffect(() => {
+    const saved = cargarPresupuestoLocal();
+    if (saved && Array.isArray(saved.rows) && saved.rows.length > 0) {
+      const cuando = saved.fecha ? new Date(saved.fecha).toLocaleString("es-ES") : "";
+      const t = setTimeout(() => {
+        setStatus(`Borrador recuperado del navegador${cuando ? " (" + cuando + ")" : ""}`, "info");
+      }, 2500);
+      return () => clearTimeout(t);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Warm-up del servidor: el backend en Render se "duerme" tras inactividad y la
+  // primera petición puede tardar ~30-60 s. Al abrir la app hacemos un ping a "/"
+  // para despertarlo y avisamos al usuario, con un reintento, para que no parezca
+  // que la aplicación se ha quedado colgada.
+  useEffect(() => {
+    let cancelado = false;
+    const ping = async (intento = 1) => {
+      try {
+        setStatus(intento === 1 ? "Conectando con el servidor..." : `Reintentando conexión con el servidor (intento ${intento})...`, "working");
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 60000);
+        const res = await fetch(`${API_URL}/`, { signal: ctrl.signal });
+        clearTimeout(t);
+        if (cancelado) return;
+        if (res.ok) {
+          setStatus("Servidor conectado. Listo.", "success");
+        } else {
+          throw new Error("HTTP " + res.status);
+        }
+      } catch (e) {
+        if (cancelado) return;
+        if (intento < 3) {
+          setStatus("El servidor estaba en reposo, despertándolo...", "working");
+          setTimeout(() => { if (!cancelado) ping(intento + 1); }, 3000);
+        } else {
+          setStatus("No se pudo conectar con el servidor. Comprueba tu conexión o inténtalo en unos segundos.", "error");
+        }
+      }
+    };
+    ping();
+    return () => { cancelado = true; };
+  }, []);
 
   // Cargar descripciones de grupos descuento, familias y subfamilias (para tooltips del grid)
   useEffect(() => {
     const norm = s => String(s || "").trim().toUpperCase();
-    fetch(`${API_URL}/gruposdescuento/`).then(r => r.ok ? r.json() : []).then(data => {
+    apiFetch(`${API_URL}/gruposdescuento/`).then(r => r.ok ? r.json() : []).then(data => {
       if (Array.isArray(data)) {
         const m = {};
         data.forEach(g => { if (g.grupodescuentospain) m[norm(g.grupodescuentospain)] = g.descripcion || ""; });
         setDescGrupos(m);
       }
     }).catch(() => {});
-    fetch(`${API_URL}/familias/`).then(r => r.ok ? r.json() : []).then(data => {
+    apiFetch(`${API_URL}/familias/`).then(r => r.ok ? r.json() : []).then(data => {
       if (Array.isArray(data)) {
         const m = {};
         data.forEach(f => { if (f.familia) m[norm(f.familia)] = f.descripcion || ""; });
         setDescFamilias(m);
       }
     }).catch(() => {});
-    fetch(`${API_URL}/subfamilias/`).then(r => r.ok ? r.json() : []).then(data => {
+    apiFetch(`${API_URL}/subfamilias/`).then(r => r.ok ? r.json() : []).then(data => {
       if (Array.isArray(data)) {
         const m = {};
         data.forEach(sf => { if (sf.subfamilia) m[norm(sf.subfamilia)] = sf.descripcion || ""; });
@@ -10945,7 +11049,7 @@ function AppInner() {
     if (!numComp) return null;
     try {
       // 1) Buscar por numerocompleto
-      const res = await fetch(`${API_URL}/presupuestos/?busqueda=${encodeURIComponent(numComp)}`);
+      const res = await apiFetch(`${API_URL}/presupuestos/?busqueda=${encodeURIComponent(numComp)}`);
       if (!res.ok) throw new Error("Error " + res.status);
       const lista = await res.json();
       // Filtrar por numerocompleto exacto y revisión
@@ -10955,7 +11059,7 @@ function AppInner() {
       );
       if (!enc) return null;
       // 2) Leer su contenido completo
-      const res2 = await fetch(`${API_URL}/presupuestos/${enc.id}/completo`);
+      const res2 = await apiFetch(`${API_URL}/presupuestos/${enc.id}/completo`);
       if (!res2.ok) throw new Error("Error " + res2.status);
       return await res2.json();
     } catch (e) {
@@ -11059,7 +11163,7 @@ function AppInner() {
     if (action === "Imprimir") {
       setStatus("Generando fichero Excel para impresión...", "working");
       try {
-        exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos);
+        exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilosImprimir);
         setStatus("Fichero Excel generado y descargado correctamente", "success");
       } catch (err) {
         setStatus("Error al generar el Excel: " + (err.message || err), "error");
@@ -11462,7 +11566,7 @@ function AppInner() {
           let emailContacto = "";
           if (presupuesto.alaatencion) {
             try {
-              const rc = await fetch(`${API_URL}/contactos/${presupuesto.alaatencion}`);
+              const rc = await apiFetch(`${API_URL}/contactos/${presupuesto.alaatencion}`);
               if (rc.ok) {
                 const cont = await rc.json();
                 emailContacto = String(cont.email || "").trim();
@@ -11761,7 +11865,7 @@ function AppInner() {
         // Cargar tabla gruposdescuento una sola vez para resolver códigos → ids
         let gruposCache = [];
         try {
-          const r = await fetch(`${API_URL}/gruposdescuento/`);
+          const r = await apiFetch(`${API_URL}/gruposdescuento/`);
           if (r.ok) gruposCache = await r.json();
         } catch (e) {
           setStatus("Error cargando grupos descuento: " + e.message, "error");
@@ -11808,7 +11912,7 @@ function AppInner() {
 
           // Comprobar si ya existe por referencia
           try {
-            const rExist = await fetch(`${API_URL}/productos/referencia/${encodeURIComponent(ref)}`);
+            const rExist = await apiFetch(`${API_URL}/productos/referencia/${encodeURIComponent(ref)}`);
             if (rExist.status === 404) {
               // No existe → seguimos al INSERT
             } else if (rExist.ok) {
@@ -11846,7 +11950,7 @@ function AppInner() {
 
           // Crear el producto
           try {
-            const rCreate = await fetch(`${API_URL}/productos/`, {
+            const rCreate = await apiFetch(`${API_URL}/productos/`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(payload),
@@ -11927,7 +12031,7 @@ function AppInner() {
         for (const row of filasConRef) {
           const ref = String(row.referencia).trim();
           try {
-            const res = await fetch(`${API_URL}/productos/referencia/${encodeURIComponent(ref)}`);
+            const res = await apiFetch(`${API_URL}/productos/referencia/${encodeURIComponent(ref)}`);
             if (res.status === 404) {
               noEncontradas++;
               continue;
@@ -12099,6 +12203,8 @@ function AppInner() {
     <OpcionesScreen
       estilos={estilos}
       setEstilos={(nuevos) => { setEstilos(nuevos); guardarEstilos(nuevos); }}
+      estilosImprimir={estilosImprimir}
+      setEstilosImprimir={(nuevos) => { setEstilosImprimir(nuevos); guardarEstilosImprimir(nuevos); }}
       configVarias={configVarias}
       setConfigVarias={setConfigVarias}
       setStatus={setStatus}
@@ -12113,7 +12219,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.23.0 (12 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.28.0 (14 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12427,7 +12533,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.23.0 (12 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.28.0 (14 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
