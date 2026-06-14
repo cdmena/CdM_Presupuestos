@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.35.1 (14 Junio 2026)
+// Versión: v2.35.2 (14 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.35.2 (14 Junio 2026) - El botón "Ver / editar tabla de opciones" queda dentro del mismo rectángulo del apartado de importación de asistentesopciones, separado por una línea (ImportTablaSection ahora admite children)
 //   v2.35.1 (14 Junio 2026) - El botón "Ver tabla de opciones" se mueve del menú Productos al apartado de Mantenimiento BD (junto a la importación de asistentesopciones)
 //   v2.35.0 (14 Junio 2026) - Productos → Ver tabla Asistente opciones: diálogo para ver/editar (edición inline de idproducto, posición, referencia, descripción) y borrar opciones de asistentesopciones. Backend: GET /asistentes/opciones (lista global, opcional ?idproducto)
 //   v2.34.1 (14 Junio 2026) - Fix import asistentesopciones: la posición (y el idproducto) admiten valores negativos. Antes replace(/\\D/g,"") quitaba el signo y -1 se guardaba como 1
@@ -1762,7 +1763,7 @@ function MantenimientoFamiliaDialog({ onClose, setStatus }) {
 //   construirNuevo: (datos) => bodyParaPOST,
 //   etiquetaRegistro: (datos) => "texto",
 // }
-function ImportTablaSection({ setStatus, config }) {
+function ImportTablaSection({ setStatus, config, children }) {
   const [fileData, setFileData] = useState(null);   // { headers, rows, origen }
   const [mapping, setMapping] = useState({});        // idxColumna -> destino
   const [erroresMapeo, setErroresMapeo] = useState([]);
@@ -2054,6 +2055,7 @@ function ImportTablaSection({ setStatus, config }) {
           </div>
         ))}
       </div>
+      {children}
     </div>
   );
 }
@@ -3133,21 +3135,18 @@ function MantenimientoSection({ setStatus }) {
             return estado === "actualizado" ? "actualizado" : "nuevo";
           },
         }}
-      />
-
-      {/* Botón para ver/editar la tabla de opciones del asistente */}
-      <div style={{ marginBottom: 20, padding: "14px 18px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#171717", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
-          <Icon as={Bot} size={16} color="#0891b2" /> Ver / editar opciones del asistente
-        </h3>
-        <p style={{ fontSize: 12, color: "#525252", marginBottom: 12, lineHeight: 1.5 }}>
-          Abre la tabla <code>asistentesopciones</code> para consultar, modificar campos (id producto, posición, referencia, descripción) y borrar opciones.
-        </p>
-        <button onClick={() => setShowAsistenteOpciones(true)}
-          style={{ padding: "7px 16px", borderRadius: 6, border: "1px solid #0891b2", background: "#ecfeff", color: "#0e7490", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
-          <BtnContent icon={Bot} iconColor="#0891b2">Ver tabla de opciones</BtnContent>
-        </button>
-      </div>
+      >
+        {/* Separador + botón para ver/editar la tabla, dentro del mismo apartado */}
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid #e2e8f0" }}>
+          <div style={{ fontSize: 12, color: "#525252", marginBottom: 10, lineHeight: 1.5 }}>
+            ¿Quieres consultar o corregir lo que ya hay? Abre la tabla <code>asistentesopciones</code> para ver, modificar campos (id producto, posición, referencia, descripción) y borrar opciones.
+          </div>
+          <button onClick={() => setShowAsistenteOpciones(true)}
+            style={{ padding: "7px 16px", borderRadius: 6, border: "1px solid #0891b2", background: "#ecfeff", color: "#0e7490", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+            <BtnContent icon={Bot} iconColor="#0891b2">Ver / editar tabla de opciones</BtnContent>
+          </button>
+        </div>
+      </ImportTablaSection>
 
       {showAsistenteOpciones && (
         <AsistenteOpcionesDialog setStatus={setStatus} onClose={() => setShowAsistenteOpciones(false)} />
@@ -12642,7 +12641,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.35.1 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.35.2 (14 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12956,7 +12955,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.35.1 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.35.2 (14 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
