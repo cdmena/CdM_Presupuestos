@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.32.0 (14 Junio 2026)
+// Versión: v2.33.1 (14 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.33.1 (14 Junio 2026) - Backend asistentesopciones: la tabla SÍ tiene id (bigserial PK). El GET de opciones devuelve id; POST devuelve id; añadidos PUT/DELETE por id. El upsert de importación sigue usando idproducto+posicion+referencia como identidad de negocio
+//   v2.33.0 (14 Junio 2026) - Mantenimiento BD: nuevo apartado para importar/actualizar la tabla asistentesopciones desde Excel (arrastrar y soltar; obligatorias idproducto+posicion+referencia, opcional descripcion; toggle actualizar SÍ/NO). Backend: POST /asistentes/opciones (upsert por idproducto+posicion+referencia)
 //   v2.32.0 (14 Junio 2026) - Estilos pestaña Imprimir: nuevo estilo configurable "Cabecera de columnas de la tabla (Excel)"; incluido en guardar/exportar/importar/restaurar (parte del objeto de estilos)
 //   v2.31.0 (14 Junio 2026) - Seleccionar contacto: el filtro de cliente se inicializa con el cliente del presupuesto (si lo hay); el usuario puede cambiarlo o poner "Todos"
 //   v2.30.3 (14 Junio 2026) - Excel impresión: nombre de fichero "Oferta SIEMENS ..." → "Presupuesto SIEMENS ..."
@@ -3043,6 +3045,48 @@ function MantenimientoSection({ setStatus }) {
               addLog(`Fila ${nFila}: "${referencia}" → CREADO`, "success");
               return "nuevo";
             }
+          },
+        }}
+      />
+
+      <ImportTablaSection
+        setStatus={setStatus}
+        config={{
+          titulo: "Opciones del asistente de referencias",
+          descripcion: "Importa o actualiza opciones del asistente (tabla asistentesopciones) desde un Excel. Columnas obligatorias: 'idproducto', 'posicion' y 'referencia'. Opcional: 'descripcion'. Una opción ya existe cuando coinciden idproducto + posicion + referencia.",
+          icono: Bot,
+          color: "#0891b2",
+          columnas: [
+            { claves: ["idproducto", "id producto", "idprod", "id prod"], destino: "idproducto", label: "ID Producto", obligatoria: true },
+            { claves: ["posicion", "posición", "pos"], destino: "posicion", label: "Posición", obligatoria: true },
+            { claves: ["referencia", "ref", "referencia opcion", "referencia opción"], destino: "referencia", label: "Referencia", obligatoria: true },
+            { claves: ["descripcion", "descripción", "desc"], destino: "descripcion", label: "Descripción", obligatoria: false },
+          ],
+          cargarContexto: async () => {
+            // No se precargan todas las opciones (no hay endpoint global); se gestiona por fila.
+            return {};
+          },
+          procesarFila: async (datos, ctx, sobreescribir, addLog, nFila) => {
+            const idproducto = parseInt(String(datos.idproducto).replace(/\D/g, ""), 10);
+            const posicion = parseInt(String(datos.posicion).replace(/\D/g, ""), 10);
+            const referencia = String(datos.referencia || "").trim();
+            if (isNaN(idproducto) || isNaN(posicion) || !referencia) {
+              addLog(`Fila ${nFila}: faltan idproducto, posicion o referencia, se omite`, "error");
+              return "error";
+            }
+            const body = { idproducto, posicion, referencia, descripcion: datos.descripcion || null };
+            const r = await apiFetch(`${API_URL}/asistentes/opciones?sobreescribir=${sobreescribir ? "true" : "false"}`, {
+              method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+            });
+            if (!r.ok) { const e = await r.json().catch(() => null); throw new Error(e?.detail || "HTTP " + r.status); }
+            const res = await r.json();
+            const estado = res && res.estado ? res.estado : "nuevo";
+            if (estado === "omitido") {
+              addLog(`Fila ${nFila}: producto ${idproducto} / pos ${posicion} / "${referencia}" → ya existe, se omite (actualizar = NO)`, "info");
+              return "omitido";
+            }
+            addLog(`Fila ${nFila}: producto ${idproducto} / pos ${posicion} / "${referencia}" → ${estado === "actualizado" ? "ACTUALIZADO" : "CREADO"}`, "success");
+            return estado === "actualizado" ? "actualizado" : "nuevo";
           },
         }}
       />
@@ -12275,7 +12319,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.32.0 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.33.1 (14 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12589,7 +12633,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.32.0 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.33.1 (14 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
