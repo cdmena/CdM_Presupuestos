@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.30.3 (14 Junio 2026)
+// Versión: v2.32.0 (14 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.32.0 (14 Junio 2026) - Estilos pestaña Imprimir: nuevo estilo configurable "Cabecera de columnas de la tabla (Excel)"; incluido en guardar/exportar/importar/restaurar (parte del objeto de estilos)
+//   v2.31.0 (14 Junio 2026) - Seleccionar contacto: el filtro de cliente se inicializa con el cliente del presupuesto (si lo hay); el usuario puede cambiarlo o poner "Todos"
 //   v2.30.3 (14 Junio 2026) - Excel impresión: nombre de fichero "Oferta SIEMENS ..." → "Presupuesto SIEMENS ..."
 //   v2.30.2 (14 Junio 2026) - Excel impresión: título "OFERTA SIEMENS" → "PRESUPUESTO SIEMENS"
 //   v2.30.1 (14 Junio 2026) - Excel impresión: etiqueta "Presupuesto Descripción" → "Presupuesto"
@@ -453,6 +455,7 @@ const NATURALEZAS_CON_ESTILO = [
   { key: "CONF",  label: "CONF - Confirmar por el cliente" },
   { key: "TITULO_EXCEL",    label: "Título del presupuesto (Excel)", soloImprimir: true },
   { key: "ETIQUETAS_EXCEL", label: "Etiquetas cabecera Excel (Presupuesto, Cliente, Número, Fecha)", soloImprimir: true },
+  { key: "CABECERA_TABLA_EXCEL", label: "Cabecera de columnas de la tabla (Excel)", soloImprimir: true },
 ];
 
 const OPCIONES_MENU = [
@@ -4126,6 +4129,7 @@ const ESTILOS_DEFAULT = {
   // Estilos específicos del Excel de impresión (solo pestaña "Imprimir"):
   TITULO_EXCEL:   { bg: "#fafafa", color: "#171717", fontFamily: "Calibri", fontWeight: 700, fontSize: 16 },
   ETIQUETAS_EXCEL:{ bg: "#f5f5f5", color: "#171717", fontFamily: "Calibri", fontWeight: 700, fontSize: 11 },
+  CABECERA_TABLA_EXCEL: { bg: "#fafafa", color: "#171717", fontFamily: "Calibri", fontWeight: 700, fontSize: 10 },
 };
 
 // Cargar estilos guardados en localStorage o usar los por defecto
@@ -4722,11 +4726,18 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
     }
   });
 
-  // ── Cabecera de columnas (Supabase: gris claro + texto oscuro) ──
+  // ── Cabecera de columnas ──
+  // Usa el estilo configurable "CABECERA_TABLA_EXCEL" (Opciones → Estilos → pestaña Imprimir)
+  const cfgCab = (estilos && estilos.CABECERA_TABLA_EXCEL) || {};
+  const cabFill = cssToRgb(cfgCab.bg, C.HEADER);
+  const cabColor = cssToRgb(cfgCab.color, C.HEADER_TEXT);
+  const cabFont = cfgCab.fontFamily || "Calibri";
+  const cabSize = cfgCab.fontSize || 10;
+  const cabBold = (cfgCab.fontWeight || 700) >= 600;
   for (let c = 1; c <= 7; c++) {
     setStyle(headerRowIdx, c, {
-      font: { name: "Calibri", sz: 10, bold: true, color: { rgb: C.HEADER_TEXT } },
-      fill: { patternType: "solid", fgColor: { rgb: C.HEADER } },
+      font: { name: cabFont, sz: cabSize, bold: cabBold, color: { rgb: cabColor } },
+      fill: { patternType: "solid", fgColor: { rgb: cabFill } },
       alignment: { horizontal: "center", vertical: "center", wrapText: true },
       border,
     });
@@ -6566,10 +6577,10 @@ function SelectorClienteDialog({ onClose, onSelect, setStatus }) {
 }
 
 // ── Diálogo selector de contacto (para "A la atención de") ──
-function SelectorContactoDialog({ onClose, onSelect, setStatus }) {
+function SelectorContactoDialog({ onClose, onSelect, setStatus, idClienteInicial }) {
   const [contactos, setContactos] = useState([]);
   const [clientes, setClientes] = useState([]);
-  const [filtroClienteId, setFiltroClienteId] = useState(null);
+  const [filtroClienteId, setFiltroClienteId] = useState(idClienteInicial || null);
   const [busqueda, setBusqueda] = useState("");
   const [cargando, setCargando] = useState(false);
 
@@ -12264,7 +12275,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.30.3 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.32.0 (14 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12578,7 +12589,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.30.3 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.32.0 (14 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
@@ -14022,6 +14033,7 @@ function AppInner() {
       {showSelecContacto && (
         <SelectorContactoDialog
           setStatus={setStatus}
+          idClienteInicial={presupuesto.idcliente || null}
           onClose={() => setShowSelecContacto(false)}
           onSelect={(contacto) => {
             setPresupuesto(p => ({
