@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.35.2 (14 Junio 2026)
+// Versión: v2.36.0 (14 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.36.0 (14 Junio 2026) - Diálogo Asistente de opciones: columnas redimensionables (useColumnResize) y ordenación por columna (useTableSort) incluida la columna Producto
 //   v2.35.2 (14 Junio 2026) - El botón "Ver / editar tabla de opciones" queda dentro del mismo rectángulo del apartado de importación de asistentesopciones, separado por una línea (ImportTablaSection ahora admite children)
 //   v2.35.1 (14 Junio 2026) - El botón "Ver tabla de opciones" se mueve del menú Productos al apartado de Mantenimiento BD (junto a la importación de asistentesopciones)
 //   v2.35.0 (14 Junio 2026) - Productos → Ver tabla Asistente opciones: diálogo para ver/editar (edición inline de idproducto, posición, referencia, descripción) y borrar opciones de asistentesopciones. Backend: GET /asistentes/opciones (lista global, opcional ?idproducto)
@@ -7235,6 +7236,10 @@ function AsistenteOpcionesDialog({ onClose, setStatus }) {
     { key: "descripcion", label: "Descripción", type: "text", width: 320 },
   ];
 
+  // Redimensionado de columnas
+  const ANCHOS_INI = { idproducto: 90, posicion: 80, referencia: 150, descripcion: 320, producto: 140 };
+  const { anchosCol, Resizer } = useColumnResize(ANCHOS_INI);
+
   useEffect(() => { cargar(); /* eslint-disable-next-line */ }, []);
 
   const cargar = async () => {
@@ -7272,6 +7277,19 @@ function AsistenteOpcionesDialog({ onClose, setStatus }) {
     return [o.referencia, o.descripcion, o.idproducto, o.posicion]
       .some(v => String(v ?? "").toLowerCase().includes(q));
   });
+
+  // Ordenación por columna (sobre las filtradas)
+  const valorOrden = (o, col) => {
+    switch (col) {
+      case "idproducto": return Number(o.idproducto) || 0;
+      case "posicion":   return Number(o.posicion) || 0;
+      case "referencia": return String(o.referencia || "").toUpperCase();
+      case "descripcion":return String(o.descripcion || "").toUpperCase();
+      case "producto":   return String(nombreProducto(o.idproducto) || "").toUpperCase();
+      default:           return 0;
+    }
+  };
+  const { ordenados: filtradasOrdenadas, ordenarPor, FlechaOrden, thOrden } = useTableSort(filtradas, valorOrden);
 
   // Cambios respecto al original (por id)
   const cambios = opciones.filter(o => {
@@ -7387,18 +7405,26 @@ function AsistenteOpcionesDialog({ onClose, setStatus }) {
             <thead style={{ position: "sticky", top: 0, background: "#f8fafc", zIndex: 1 }}>
               <tr>
                 {COLS.map(c => (
-                  <th key={c.key} style={{ width: c.width, padding: "8px 10px", textAlign: c.type === "number" ? "center" : "left", color: "#171717", fontWeight: 600, borderBottom: "1px solid #e2e8f0", whiteSpace: "nowrap" }}>{c.label}</th>
+                  <th key={c.key} onClick={() => ordenarPor(c.key)}
+                    style={thOrden(c.key, { position: "relative", width: anchosCol[c.key], padding: "8px 10px", textAlign: c.type === "number" ? "center" : "left", color: "#171717", fontWeight: 600, borderBottom: "1px solid #e2e8f0", whiteSpace: "nowrap" })}
+                    title={`Ordenar por ${c.label}`}>
+                    {c.label}<FlechaOrden col={c.key} /><Resizer colKey={c.key} />
+                  </th>
                 ))}
-                <th style={{ width: 50, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, borderBottom: "1px solid #e2e8f0" }}>Producto</th>
+                <th onClick={() => ordenarPor("producto")}
+                  style={thOrden("producto", { position: "relative", width: anchosCol.producto, padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 600, borderBottom: "1px solid #e2e8f0" })}
+                  title="Ordenar por producto">
+                  Producto<FlechaOrden col="producto" /><Resizer colKey="producto" />
+                </th>
                 <th style={{ width: 40, padding: "8px 6px", borderBottom: "1px solid #e2e8f0" }}></th>
               </tr>
             </thead>
             <tbody>
               {cargando ? (
                 <tr><td colSpan={COLS.length + 2} style={{ padding: 24, textAlign: "center", color: "#94a3b8" }}>Cargando...</td></tr>
-              ) : filtradas.length === 0 ? (
+              ) : filtradasOrdenadas.length === 0 ? (
                 <tr><td colSpan={COLS.length + 2} style={{ padding: 24, textAlign: "center", color: "#94a3b8" }}>Sin opciones</td></tr>
-              ) : filtradas.map((o, i) => {
+              ) : filtradasOrdenadas.map((o, i) => {
                 const modificado = cambios.some(c => c.id === o.id);
                 return (
                   <tr key={o.id} style={{ background: modificado ? "#fffbeb" : (i % 2 === 0 ? "#fff" : "#f8fafc"), borderBottom: "1px solid #f1f5f9" }}>
@@ -7406,7 +7432,7 @@ function AsistenteOpcionesDialog({ onClose, setStatus }) {
                       const editando = editingCell && editingCell.id === o.id && editingCell.key === col.key;
                       return (
                         <td key={col.key} onClick={() => !editando && iniciarEdicion(o.id, col.key)}
-                          style={{ padding: editando ? "2px 4px" : "6px 10px", textAlign: col.type === "number" ? "center" : "left", cursor: "pointer", maxWidth: col.width, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                          style={{ padding: editando ? "2px 4px" : "6px 10px", textAlign: col.type === "number" ? "center" : "left", cursor: "pointer", maxWidth: anchosCol[col.key], overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
                           title={String(o[col.key] ?? "")}>
                           {editando ? (
                             <input autoFocus value={editValue}
@@ -7420,7 +7446,7 @@ function AsistenteOpcionesDialog({ onClose, setStatus }) {
                         </td>
                       );
                     })}
-                    <td style={{ padding: "6px 10px", textAlign: "center", color: "#64748b", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 50 }} title={nombreProducto(o.idproducto)}>{nombreProducto(o.idproducto)}</td>
+                    <td style={{ padding: "6px 10px", textAlign: "left", color: "#64748b", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: anchosCol.producto }} title={nombreProducto(o.idproducto)}>{nombreProducto(o.idproducto)}</td>
                     <td style={{ padding: "6px 6px", textAlign: "center" }}>
                       <button onClick={() => setConfirmBorrar(o)} title="Borrar opción"
                         style={{ border: "none", background: "none", cursor: "pointer", padding: 2, color: "#dc2626", display: "inline-flex" }}>
@@ -12641,7 +12667,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.35.2 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.36.0 (14 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12955,7 +12981,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.35.2 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.36.0 (14 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
