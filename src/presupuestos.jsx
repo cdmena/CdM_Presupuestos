@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.29.0 (14 Junio 2026)
+// Versión: v2.30.0 (14 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.30.0 (14 Junio 2026) - Estilos pestaña Imprimir: dos estilos nuevos configurables solo en Imprimir → "Título del presupuesto (Excel)" y "Etiquetas cabecera Excel" (Presupuesto Descripción, Cliente, Presupuesto Número, Fecha). exportToExcel los usa
 //   v2.29.0 (14 Junio 2026) - Estilos: Exportar/Importar JSON, Restaurar por defecto y Aplicar y guardar actúan sobre AMBOS conjuntos (pantalla e imprimir). JSON con formato {version,pantalla,imprimir} (compatible con el formato antiguo). Dos borradores independientes para no perder cambios al cambiar de pestaña
 //   v2.28.1 (14 Junio 2026) - Fix arranque (Cannot access ... before initialization): el useEffect de autoguardado usaba `presupuesto` en sus dependencias antes de declararlo (TDZ); movido tras la declaración de presupuesto
 //   v2.28.0 (14 Junio 2026) - Configurar Estilos con 2 pestañas: "En pantalla" (grid/Aplicar Estructura) e "Imprimir" (Excel de Presupuesto→Imprimir), conjuntos independientes en localStorage; mismos botones para guardar/exportar/importar/restaurar por pestaña
@@ -447,6 +448,8 @@ const NATURALEZAS_CON_ESTILO = [
   { key: "GRIS",  label: "GRIS - Línea resaltada gris" },
   { key: "PD",    label: "PD - Producto normal" },
   { key: "CONF",  label: "CONF - Confirmar por el cliente" },
+  { key: "TITULO_EXCEL",    label: "Título del presupuesto (Excel)", soloImprimir: true },
+  { key: "ETIQUETAS_EXCEL", label: "Etiquetas cabecera Excel (Descripción, Cliente, Número, Fecha)", soloImprimir: true },
 ];
 
 const OPCIONES_MENU = [
@@ -3769,7 +3772,7 @@ function OpcionesScreen({ estilos, setEstilos, estilosImprimir, setEstilosImprim
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-                {NATURALEZAS_CON_ESTILO.map(nat => {
+                {NATURALEZAS_CON_ESTILO.filter(nat => estilosTab === "imprimir" || !nat.soloImprimir).map(nat => {
                   const cfg = draft[nat.key] || ESTILOS_DEFAULT[nat.key];
                   return (
                     <div key={nat.key} style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "12px 16px", background: "#fff" }}>
@@ -4117,6 +4120,9 @@ const ESTILOS_DEFAULT = {
   GRIS:  { bg: "#cfcfcf", color: "#111111", fontFamily: "Segoe UI", fontWeight: 700, fontSize: 10 },
   PD:    { bg: "#ffffff", color: "#1e293b", fontFamily: "Segoe UI", fontWeight: 400, fontSize: 11 },
   CONF:  { bg: "#fef9c3", color: "#854d0e", fontFamily: "Segoe UI", fontWeight: 600, fontSize: 11 },
+  // Estilos específicos del Excel de impresión (solo pestaña "Imprimir"):
+  TITULO_EXCEL:   { bg: "#fafafa", color: "#171717", fontFamily: "Calibri", fontWeight: 700, fontSize: 16 },
+  ETIQUETAS_EXCEL:{ bg: "#f5f5f5", color: "#171717", fontFamily: "Calibri", fontWeight: 700, fontSize: 11 },
 };
 
 // Cargar estilos guardados en localStorage o usar los por defecto
@@ -4668,22 +4674,37 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
     ws[addr].s = style;
   };
 
-  // ── Estilo título principal (Supabase: gris claro + texto oscuro) ──
+  // ── Estilo título principal ──
+  // Usa el estilo configurable "TITULO_EXCEL" (Opciones → Estilos → pestaña Imprimir)
+  const cfgTitulo = (estilos && estilos.TITULO_EXCEL) || {};
+  const tituloFill = cssToRgb(cfgTitulo.bg, C.HEADER);
+  const tituloColor = cssToRgb(cfgTitulo.color, C.HEADER_TEXT);
+  const tituloFont = cfgTitulo.fontFamily || "Calibri";
+  const tituloSize = cfgTitulo.fontSize || 16;
+  const tituloBold = (cfgTitulo.fontWeight || 700) >= 600;
   for (let c = 1; c <= 7; c++) {
     setStyle(0, c, {
-      font: { name: "Calibri", sz: 16, bold: true, color: { rgb: C.HEADER_TEXT } },
-      fill: { patternType: "solid", fgColor: { rgb: C.HEADER } },
+      font: { name: tituloFont, sz: tituloSize, bold: tituloBold, color: { rgb: tituloColor } },
+      fill: { patternType: "solid", fgColor: { rgb: tituloFill } },
       alignment: { horizontal: "center", vertical: "center" },
       border,
     });
   }
 
   // ── Cabecera del presupuesto (filas 2, 3, 4, 6) ──
-  // La etiqueta va ahora en la columna D (índice 3); el valor sigue en E..H (merge 4..7)
+  // Las etiquetas (Presupuesto Descripción, Cliente, Presupuesto Número, Fecha) usan
+  // el estilo configurable "ETIQUETAS_EXCEL". La etiqueta va en la columna D (índice 3);
+  // el valor sigue en E..H (merge 4..7).
+  const cfgEtiq = (estilos && estilos.ETIQUETAS_EXCEL) || {};
+  const etiqFill = cssToRgb(cfgEtiq.bg, C.LABEL);
+  const etiqColor = cssToRgb(cfgEtiq.color, C.HEADER_TEXT);
+  const etiqFont = cfgEtiq.fontFamily || "Calibri";
+  const etiqSize = cfgEtiq.fontSize || 11;
+  const etiqBold = (cfgEtiq.fontWeight || 700) >= 600;
   [2, 3, 4, 6].forEach(r => {
     setStyle(r, 3, {
-      font: { name: "Calibri", sz: 11, bold: true, color: { rgb: C.HEADER_TEXT } },
-      fill: { patternType: "solid", fgColor: { rgb: C.LABEL } },
+      font: { name: etiqFont, sz: etiqSize, bold: etiqBold, color: { rgb: etiqColor } },
+      fill: { patternType: "solid", fgColor: { rgb: etiqFill } },
       alignment: { horizontal: "right", vertical: "center", indent: 1 },
       border,
     });
@@ -12240,7 +12261,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.29.0 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.30.0 (14 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12554,7 +12575,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.29.0 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.30.0 (14 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
