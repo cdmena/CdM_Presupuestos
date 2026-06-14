@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.30.1 (14 Junio 2026)
+// Versión: v2.30.3 (14 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,8 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.30.3 (14 Junio 2026) - Excel impresión: nombre de fichero "Oferta SIEMENS ..." → "Presupuesto SIEMENS ..."
+//   v2.30.2 (14 Junio 2026) - Excel impresión: título "OFERTA SIEMENS" → "PRESUPUESTO SIEMENS"
 //   v2.30.1 (14 Junio 2026) - Excel impresión: etiqueta "Presupuesto Descripción" → "Presupuesto"
 //   v2.30.0 (14 Junio 2026) - Estilos pestaña Imprimir: dos estilos nuevos configurables solo en Imprimir → "Título del presupuesto (Excel)" y "Etiquetas cabecera Excel" (Presupuesto Descripción, Cliente, Presupuesto Número, Fecha). exportToExcel los usa
 //   v2.29.0 (14 Junio 2026) - Estilos: Exportar/Importar JSON, Restaurar por defecto y Aplicar y guardar actúan sobre AMBOS conjuntos (pantalla e imprimir). JSON con formato {version,pantalla,imprimir} (compatible con el formato antiguo). Dos borradores independientes para no perder cambios al cambiar de pestaña
@@ -4497,7 +4499,7 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
 
   // Nombre del fichero (limpiar caracteres no válidos para Windows)
   const numCompletoFich = presupuesto.numerocompleto || presupuesto.np || "";
-  const nombreFichero = `Oferta SIEMENS ${numCompletoFich} Rev ${presupuesto.revision} - ${presupuesto.titulo} - ${presupuesto.cliente}`
+  const nombreFichero = `Presupuesto SIEMENS ${numCompletoFich} Rev ${presupuesto.revision} - ${presupuesto.titulo} - ${presupuesto.cliente}`
     .replace(/[\\/:*?"<>|]/g, "-");
 
   // Fecha actual en formato largo español
@@ -4570,7 +4572,7 @@ function exportToExcel(presupuesto, rows, apartados, estructuraActiva, estilos) 
   // ── Construir matriz de datos ──
   const aoa = [];
   const numCompleto = presupuesto.numerocompleto || presupuesto.np || "";
-  aoa.push([null, `OFERTA SIEMENS — ${numCompleto} Revisión ${presupuesto.revision}`]);
+  aoa.push([null, `PRESUPUESTO SIEMENS — ${numCompleto} Revisión ${presupuesto.revision}`]);
   aoa.push([]);
   aoa.push([null, null, null, "Presupuesto", presupuesto.titulo]);
   aoa.push([null, null, null, "Cliente",                 presupuesto.cliente]);
@@ -12262,7 +12264,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.30.1 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.30.3 (14 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12576,7 +12578,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.30.1 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.30.3 (14 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
