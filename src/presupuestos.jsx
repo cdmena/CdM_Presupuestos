@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.33.1 (14 Junio 2026)
+// Versión: v2.35.1 (14 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,10 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.35.1 (14 Junio 2026) - El botón "Ver tabla de opciones" se mueve del menú Productos al apartado de Mantenimiento BD (junto a la importación de asistentesopciones)
+//   v2.35.0 (14 Junio 2026) - Productos → Ver tabla Asistente opciones: diálogo para ver/editar (edición inline de idproducto, posición, referencia, descripción) y borrar opciones de asistentesopciones. Backend: GET /asistentes/opciones (lista global, opcional ?idproducto)
+//   v2.34.1 (14 Junio 2026) - Fix import asistentesopciones: la posición (y el idproducto) admiten valores negativos. Antes replace(/\\D/g,"") quitaba el signo y -1 se guardaba como 1
+//   v2.34.0 (14 Junio 2026) - Importación Excel (ImportTablaSection): warm-up del servidor antes de procesar (ping a / con reintentos) y reintento por fila ante errores de red (Failed to fetch cuando Render despierta), para no perder las primeras filas
 //   v2.33.1 (14 Junio 2026) - Backend asistentesopciones: la tabla SÍ tiene id (bigserial PK). El GET de opciones devuelve id; POST devuelve id; añadidos PUT/DELETE por id. El upsert de importación sigue usando idproducto+posicion+referencia como identidad de negocio
 //   v2.33.0 (14 Junio 2026) - Mantenimiento BD: nuevo apartado para importar/actualizar la tabla asistentesopciones desde Excel (arrastrar y soltar; obligatorias idproducto+posicion+referencia, opcional descripcion; toggle actualizar SÍ/NO). Backend: POST /asistentes/opciones (upsert por idproducto+posicion+referencia)
 //   v2.32.0 (14 Junio 2026) - Estilos pestaña Imprimir: nuevo estilo configurable "Cabecera de columnas de la tabla (Excel)"; incluido en guardar/exportar/importar/restaurar (parte del objeto de estilos)
@@ -1833,6 +1837,26 @@ function ImportTablaSection({ setStatus, config }) {
 
     addLog(`Fichero "${fileData.origen}" — ${fileData.rows.length} filas. Columnas: ${Object.values(mapping).join(", ")}`, "info");
 
+    // Despertar el servidor antes de empezar (Render se duerme en reposo y la
+    // primera petición tarda). Hacemos ping a "/" y esperamos a que responda.
+    addLog("Comprobando conexión con el servidor...", "info");
+    let despierto = false;
+    for (let intento = 1; intento <= 5 && !despierto && !stopRequested.current; intento++) {
+      try {
+        const ctrl = new AbortController();
+        const t = setTimeout(() => ctrl.abort(), 60000);
+        const r = await fetch(`${API_URL}/`, { signal: ctrl.signal });
+        clearTimeout(t);
+        if (r.ok) { despierto = true; addLog("Servidor conectado.", "success"); }
+      } catch {
+        addLog(`El servidor no responde (¿en reposo?). Reintentando en 3 s... (intento ${intento}/5)`, "warning");
+        await new Promise(res => setTimeout(res, 3000));
+      }
+    }
+    if (!despierto && !stopRequested.current) {
+      addLog("No se pudo conectar con el servidor. Se intentará de todos modos fila a fila.", "warning");
+    }
+
     // Cargar registros existentes y datos auxiliares
     let contexto = {};
     try {
@@ -1864,15 +1888,34 @@ function ImportTablaSection({ setStatus, config }) {
         continue;
       }
 
-      try {
-        const resultado = await config.procesarFila(datos, contexto, sobreescribir, addLog, i + 1);
-        if (resultado === "nuevo") nuevos++;
-        else if (resultado === "actualizado") actualizados++;
-        else if (resultado === "omitido") omitidos++;
-        else if (resultado === "error") errores++;
-      } catch (e) {
-        addLog(`Fila ${i + 1}: ERROR ${e.message}`, "error");
-        errores++;
+      // Reintentar ante errores de red (típico cuando el servidor de Render
+      // estaba en reposo y está despertando). Hasta 5 reintentos con espera.
+      let intento = 0;
+      let hecho = false;
+      while (!hecho) {
+        if (stopRequested.current) break;
+        try {
+          const resultado = await config.procesarFila(datos, contexto, sobreescribir, addLog, i + 1);
+          if (resultado === "nuevo") nuevos++;
+          else if (resultado === "actualizado") actualizados++;
+          else if (resultado === "omitido") omitidos++;
+          else if (resultado === "error") errores++;
+          hecho = true;
+        } catch (e) {
+          const msg = String(e && e.message || e);
+          const esRed = /failed to fetch|networkerror|load failed|fetch/i.test(msg);
+          if (esRed && intento < 5) {
+            intento++;
+            const espera = 2000 + intento * 1000; // 3s, 4s, 5s, 6s, 7s
+            if (intento === 1) addLog(`Fila ${i + 1}: el servidor no responde (¿despertando?). Reintentando...`, "warning");
+            await new Promise(res => setTimeout(res, espera));
+            // seguir en el while → reintenta la misma fila
+          } else {
+            addLog(`Fila ${i + 1}: ERROR ${msg}`, "error");
+            errores++;
+            hecho = true;
+          }
+        }
       }
     }
 
@@ -2018,6 +2061,7 @@ function ImportTablaSection({ setStatus, config }) {
 function MantenimientoSection({ setStatus }) {
   const [logsDialog, setLogsDialog] = useState(false);
   const [logs, setLogs] = useState([]);
+  const [showAsistenteOpciones, setShowAsistenteOpciones] = useState(false);
   const [showFamiliasDialog, setShowFamiliasDialog] = useState(false);
   const [showSubfamiliasDialog, setShowSubfamiliasDialog] = useState(false);
   const [actualizandoMasusado, setActualizandoMasusado] = useState(false);
@@ -3067,8 +3111,8 @@ function MantenimientoSection({ setStatus }) {
             return {};
           },
           procesarFila: async (datos, ctx, sobreescribir, addLog, nFila) => {
-            const idproducto = parseInt(String(datos.idproducto).replace(/\D/g, ""), 10);
-            const posicion = parseInt(String(datos.posicion).replace(/\D/g, ""), 10);
+            const idproducto = parseInt(String(datos.idproducto).trim(), 10);
+            const posicion = parseInt(String(datos.posicion).trim(), 10);
             const referencia = String(datos.referencia || "").trim();
             if (isNaN(idproducto) || isNaN(posicion) || !referencia) {
               addLog(`Fila ${nFila}: faltan idproducto, posicion o referencia, se omite`, "error");
@@ -3090,6 +3134,24 @@ function MantenimientoSection({ setStatus }) {
           },
         }}
       />
+
+      {/* Botón para ver/editar la tabla de opciones del asistente */}
+      <div style={{ marginBottom: 20, padding: "14px 18px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: "#171717", marginBottom: 8, display: "flex", alignItems: "center", gap: 8 }}>
+          <Icon as={Bot} size={16} color="#0891b2" /> Ver / editar opciones del asistente
+        </h3>
+        <p style={{ fontSize: 12, color: "#525252", marginBottom: 12, lineHeight: 1.5 }}>
+          Abre la tabla <code>asistentesopciones</code> para consultar, modificar campos (id producto, posición, referencia, descripción) y borrar opciones.
+        </p>
+        <button onClick={() => setShowAsistenteOpciones(true)}
+          style={{ padding: "7px 16px", borderRadius: 6, border: "1px solid #0891b2", background: "#ecfeff", color: "#0e7490", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+          <BtnContent icon={Bot} iconColor="#0891b2">Ver tabla de opciones</BtnContent>
+        </button>
+      </div>
+
+      {showAsistenteOpciones && (
+        <AsistenteOpcionesDialog setStatus={setStatus} onClose={() => setShowAsistenteOpciones(false)} />
+      )}
 
       {/* Apartado Comprobar integridad de datos */}
       <div style={{ marginBottom: 20, padding: "14px 18px", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8 }}>
@@ -7147,6 +7209,267 @@ function ClientesDialog({ onClose, setStatus, onAsignarPresupuesto }) {
           </div>
         )}
 
+      </div>
+    </div>
+  );
+}
+
+// ── Diálogo Ver/editar tabla Asistente de opciones (asistentesopciones) ──
+function AsistenteOpcionesDialog({ onClose, setStatus }) {
+  const [opciones, setOpciones] = useState([]);
+  const [original, setOriginal] = useState([]);
+  const [productos, setProductos] = useState([]); // asistentesproductos para mostrar nombre
+  const [busqueda, setBusqueda] = useState("");
+  const [filtroProducto, setFiltroProducto] = useState("");
+  const [cargando, setCargando] = useState(false);
+  const [error, setError] = useState(null);
+  const [editingCell, setEditingCell] = useState(null); // {id, key}
+  const [editValue, setEditValue] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [confirmBorrar, setConfirmBorrar] = useState(null); // opción a borrar
+  const [borrando, setBorrando] = useState(false);
+
+  const COLS = [
+    { key: "idproducto", label: "ID Producto", type: "number", width: 90 },
+    { key: "posicion", label: "Posición", type: "number", width: 80 },
+    { key: "referencia", label: "Referencia", type: "text", width: 150 },
+    { key: "descripcion", label: "Descripción", type: "text", width: 320 },
+  ];
+
+  useEffect(() => { cargar(); /* eslint-disable-next-line */ }, []);
+
+  const cargar = async () => {
+    setCargando(true); setError(null);
+    setStatus && setStatus("Cargando opciones del asistente...", "working");
+    try {
+      const [ro, rp] = await Promise.all([
+        apiFetch(`${API_URL}/asistentes/opciones`),
+        apiFetch(`${API_URL}/asistentes/productos`),
+      ]);
+      const data = ro.ok ? await ro.json() : [];
+      const prods = rp.ok ? await rp.json() : [];
+      setOpciones(data);
+      setOriginal(JSON.parse(JSON.stringify(data)));
+      setProductos(Array.isArray(prods) ? prods : []);
+      setStatus && setStatus(`${data.length} opcion${data.length !== 1 ? "es" : ""} cargada${data.length !== 1 ? "s" : ""}`, "success");
+    } catch (e) {
+      setError(e.message);
+      setStatus && setStatus("Error cargando opciones: " + e.message, "error");
+    } finally {
+      setCargando(false);
+    }
+  };
+
+  const nombreProducto = (idp) => {
+    const p = productos.find(x => String(x.id) === String(idp));
+    return p ? (p.nombre || p.referencia || `#${idp}`) : `#${idp}`;
+  };
+
+  // Filtrado
+  const filtradas = opciones.filter(o => {
+    if (filtroProducto && String(o.idproducto) !== String(filtroProducto)) return false;
+    if (!busqueda.trim()) return true;
+    const q = busqueda.toLowerCase();
+    return [o.referencia, o.descripcion, o.idproducto, o.posicion]
+      .some(v => String(v ?? "").toLowerCase().includes(q));
+  });
+
+  // Cambios respecto al original (por id)
+  const cambios = opciones.filter(o => {
+    const orig = original.find(x => x.id === o.id);
+    if (!orig) return false;
+    return COLS.some(c => String(o[c.key] ?? "") !== String(orig[c.key] ?? ""));
+  });
+
+  const iniciarEdicion = (id, key) => {
+    const o = opciones.find(x => x.id === id);
+    setEditingCell({ id, key });
+    setEditValue(String(o?.[key] ?? ""));
+  };
+
+  const confirmarEdicion = () => {
+    if (!editingCell) return;
+    const { id, key } = editingCell;
+    const col = COLS.find(c => c.key === key);
+    let val = editValue;
+    if (col.type === "number") {
+      const n = parseInt(String(editValue).trim(), 10); // respeta el signo (p.ej. -1)
+      val = isNaN(n) ? null : n;
+    } else {
+      val = editValue.trim() === "" ? null : editValue;
+    }
+    setOpciones(prev => prev.map(o => o.id === id ? { ...o, [key]: val } : o));
+    setEditingCell(null);
+    setEditValue("");
+  };
+
+  const guardarCambios = async () => {
+    if (cambios.length === 0) return;
+    setGuardando(true);
+    setStatus && setStatus(`Guardando ${cambios.length} cambio(s)...`, "working");
+    let ok = 0, err = 0;
+    for (const o of cambios) {
+      try {
+        const r = await apiFetch(`${API_URL}/asistentes/opciones/${o.id}`, {
+          method: "PUT", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            idproducto: Number(o.idproducto),
+            posicion: Number(o.posicion),
+            referencia: String(o.referencia || ""),
+            descripcion: o.descripcion || null,
+          }),
+        });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        ok++;
+      } catch (e) { err++; }
+    }
+    setOriginal(JSON.parse(JSON.stringify(opciones)));
+    setGuardando(false);
+    setStatus && setStatus(`Guardado: ${ok} correcto(s)${err ? `, ${err} con error` : ""}`, err ? "error" : "success");
+  };
+
+  const borrar = async (op) => {
+    setBorrando(true);
+    try {
+      const r = await apiFetch(`${API_URL}/asistentes/opciones/${op.id}`, { method: "DELETE" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      setOpciones(prev => prev.filter(o => o.id !== op.id));
+      setOriginal(prev => prev.filter(o => o.id !== op.id));
+      setStatus && setStatus("Opción borrada", "success");
+    } catch (e) {
+      setStatus && setStatus("Error al borrar: " + e.message, "error");
+    } finally {
+      setBorrando(false);
+      setConfirmBorrar(null);
+    }
+  };
+
+  // Lista de productos presentes (para el filtro)
+  const productosEnTabla = [...new Set(opciones.map(o => o.idproducto))].sort((a, b) => a - b);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }} onClick={onClose}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "95%", maxWidth: 940, maxHeight: "88vh", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid #e5e5e5" }}>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#171717", display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <Icon as={Bot} size={18} color="#0891b2" /> Asistente de opciones
+          </h2>
+          <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "#94a3b8", display: "inline-flex" }}>
+            <Icon as={X} size={18} />
+          </button>
+        </div>
+
+        {/* Filtros */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+          <select value={filtroProducto} onChange={e => setFiltroProducto(e.target.value)}
+            style={{ padding: "5px 8px", border: "1px solid #d4d4d4", borderRadius: 6, fontSize: 12, background: "#fff", minWidth: 220 }}>
+            <option value="">— Todos los productos —</option>
+            {productosEnTabla.map(idp => (
+              <option key={idp} value={idp}>{idp} · {nombreProducto(idp)}</option>
+            ))}
+          </select>
+          <input value={busqueda} onChange={e => setBusqueda(e.target.value)}
+            placeholder="Buscar referencia, descripción..."
+            style={{ flex: 1, padding: "5px 10px", border: "1px solid #d4d4d4", borderRadius: 6, fontSize: 12, minWidth: 180 }} />
+          <span style={{ fontSize: 11, color: "#64748b" }}>{filtradas.length} de {opciones.length}</span>
+          <button onClick={cargar} disabled={cargando}
+            style={{ padding: "5px 12px", borderRadius: 6, border: "1px solid #d4d4d4", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 12 }}>
+            <BtnContent icon={RefreshCw}>Recargar</BtnContent>
+          </button>
+        </div>
+
+        {error && (
+          <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 6, padding: "8px 12px", fontSize: 12, color: "#991b1b", marginBottom: 10 }}>{error}</div>
+        )}
+
+        {/* Tabla */}
+        <div style={{ flex: 1, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead style={{ position: "sticky", top: 0, background: "#f8fafc", zIndex: 1 }}>
+              <tr>
+                {COLS.map(c => (
+                  <th key={c.key} style={{ width: c.width, padding: "8px 10px", textAlign: c.type === "number" ? "center" : "left", color: "#171717", fontWeight: 600, borderBottom: "1px solid #e2e8f0", whiteSpace: "nowrap" }}>{c.label}</th>
+                ))}
+                <th style={{ width: 50, padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 600, borderBottom: "1px solid #e2e8f0" }}>Producto</th>
+                <th style={{ width: 40, padding: "8px 6px", borderBottom: "1px solid #e2e8f0" }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {cargando ? (
+                <tr><td colSpan={COLS.length + 2} style={{ padding: 24, textAlign: "center", color: "#94a3b8" }}>Cargando...</td></tr>
+              ) : filtradas.length === 0 ? (
+                <tr><td colSpan={COLS.length + 2} style={{ padding: 24, textAlign: "center", color: "#94a3b8" }}>Sin opciones</td></tr>
+              ) : filtradas.map((o, i) => {
+                const modificado = cambios.some(c => c.id === o.id);
+                return (
+                  <tr key={o.id} style={{ background: modificado ? "#fffbeb" : (i % 2 === 0 ? "#fff" : "#f8fafc"), borderBottom: "1px solid #f1f5f9" }}>
+                    {COLS.map(col => {
+                      const editando = editingCell && editingCell.id === o.id && editingCell.key === col.key;
+                      return (
+                        <td key={col.key} onClick={() => !editando && iniciarEdicion(o.id, col.key)}
+                          style={{ padding: editando ? "2px 4px" : "6px 10px", textAlign: col.type === "number" ? "center" : "left", cursor: "pointer", maxWidth: col.width, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                          title={String(o[col.key] ?? "")}>
+                          {editando ? (
+                            <input autoFocus value={editValue}
+                              onChange={e => setEditValue(e.target.value)}
+                              onBlur={confirmarEdicion}
+                              onKeyDown={e => { if (e.key === "Enter") confirmarEdicion(); if (e.key === "Escape") { setEditingCell(null); setEditValue(""); } }}
+                              style={{ width: "100%", padding: "4px 6px", border: "1px solid #2563eb", borderRadius: 4, fontSize: 12, textAlign: col.type === "number" ? "center" : "left" }} />
+                          ) : (
+                            String(o[col.key] ?? "") || <span style={{ color: "#cbd5e1" }}>—</span>
+                          )}
+                        </td>
+                      );
+                    })}
+                    <td style={{ padding: "6px 10px", textAlign: "center", color: "#64748b", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 50 }} title={nombreProducto(o.idproducto)}>{nombreProducto(o.idproducto)}</td>
+                    <td style={{ padding: "6px 6px", textAlign: "center" }}>
+                      <button onClick={() => setConfirmBorrar(o)} title="Borrar opción"
+                        style={{ border: "none", background: "none", cursor: "pointer", padding: 2, color: "#dc2626", display: "inline-flex" }}>
+                        <Icon as={Trash2} size={14} color="#dc2626" />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pie: cambios + guardar */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 14, paddingTop: 12, borderTop: "1px solid #e2e8f0" }}>
+          <span style={{ fontSize: 12, color: cambios.length > 0 ? "#92400e" : "#64748b" }}>
+            {cambios.length > 0 ? `${cambios.length} fila(s) modificada(s) sin guardar` : "Sin cambios pendientes"}
+          </span>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={onClose} style={{ padding: "7px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 12 }}>Cerrar</button>
+            <button onClick={guardarCambios} disabled={cambios.length === 0 || guardando}
+              style={{ padding: "7px 18px", borderRadius: 6, border: "none", background: (cambios.length > 0 && !guardando) ? "#16a34a" : "#cbd5e1", color: "#fff", cursor: (cambios.length > 0 && !guardando) ? "pointer" : "default", fontSize: 12, fontWeight: 600 }}>
+              <BtnContent icon={guardando ? RefreshCw : Save} iconColor="#fff">{guardando ? "Guardando..." : "Guardar cambios"}</BtnContent>
+            </button>
+          </div>
+        </div>
+
+        {/* Confirmación de borrado */}
+        {confirmBorrar && (
+          <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100000 }}>
+            <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", minWidth: 360, boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                <Icon as={Trash2} size={20} color="#dc2626" />
+                <h3 style={{ fontSize: 15, fontWeight: 600, margin: 0 }}>Borrar opción</h3>
+              </div>
+              <p style={{ fontSize: 13, color: "#475569", margin: "0 0 16px" }}>
+                ¿Borrar la opción <strong>{confirmBorrar.referencia}</strong> (producto {confirmBorrar.idproducto}, posición {confirmBorrar.posicion})? Esta acción no se puede deshacer.
+              </p>
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+                <button onClick={() => setConfirmBorrar(null)} style={{ padding: "7px 16px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 13 }}>Cancelar</button>
+                <button onClick={() => borrar(confirmBorrar)} disabled={borrando}
+                  style={{ padding: "7px 16px", borderRadius: 6, border: "none", background: "#dc2626", color: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 500 }}>
+                  <BtnContent icon={Trash2} iconColor="#fff">{borrando ? "Borrando..." : "Borrar"}</BtnContent>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -12319,7 +12642,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.33.1 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.35.1 (14 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12633,7 +12956,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.33.1 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.35.1 (14 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
