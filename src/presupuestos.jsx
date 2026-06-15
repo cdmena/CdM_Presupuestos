@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.36.0 (14 Junio 2026)
+// Versión: v2.37.0 (14 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,7 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.37.0 (14 Junio 2026) - Descuentos → Histórico Descuentos: diálogo que, para las referencias/grupos de las celdas seleccionadas (rectángulo azul) y filtro de cliente (o todos), muestra dto y precio unitario en los últimos 5 presupuestos que los contienen (cabecera: nº completo + fecha). Backend: GET /descuentos/historico
 //   v2.36.0 (14 Junio 2026) - Diálogo Asistente de opciones: columnas redimensionables (useColumnResize) y ordenación por columna (useTableSort) incluida la columna Producto
 //   v2.35.2 (14 Junio 2026) - El botón "Ver / editar tabla de opciones" queda dentro del mismo rectángulo del apartado de importación de asistentesopciones, separado por una línea (ImportTablaSection ahora admite children)
 //   v2.35.1 (14 Junio 2026) - El botón "Ver tabla de opciones" se mueve del menú Productos al apartado de Mantenimiento BD (junto a la importación de asistentesopciones)
@@ -4098,6 +4099,7 @@ const MENU_STRUCTURE = [
     { label: "Fijar precio de celdas", action: "FijarPrecioCeldas", icon: Hash, tooltip: "Fija el precio neto de las celdas seleccionadas" },
     { label: "---" },
     { label: "Gestionar Estrategias Descuento", action: "GestionarEstrategias", icon: Percent, tooltip: "Consulta, crea, edita y aplica estrategias de descuento por grupo" },
+    { label: "Histórico Descuentos", action: "HistoricoDescuentos", icon: TrendingUp, tooltip: "Histórico de descuento y precio unitario de las referencias/grupos seleccionados en los últimos presupuestos" },
   ]},
   { id: "otros", icon: MoreHorizontal, label: "Otros", tooltip: "Ayuda, opciones y bases de datos auxiliares", items: [
     { label: "Ayuda", action: "Ayuda", icon: HelpCircle, tooltip: "Muestra la ayuda con atajos y acciones del grid" },
@@ -10111,6 +10113,173 @@ function AsistenteReferenciasDialog({ onClose, onInsertar, setStatus }) {
   );
 }
 
+// ── Diálogo Histórico de Descuentos ──
+// Muestra, para las referencias y/o grupos de descuento seleccionados, el descuento
+// y precio unitario en los últimos 5 presupuestos que los contienen.
+function HistoricoDescuentosDialog({ refs, grupos, onClose, setStatus }) {
+  const [clientes, setClientes] = useState([]);
+  const [idcliente, setIdcliente] = useState(""); // "" = todos
+  const [usarRef, setUsarRef] = useState(true);
+  const [usarGrupo, setUsarGrupo] = useState(false);
+  const [consultando, setConsultando] = useState(false);
+  const [resultado, setResultado] = useState(null); // { filas: [{ tipo, valor, presupuestos: [...] }] }
+
+  useEffect(() => {
+    // Cargar clientes para el filtro
+    (async () => {
+      try {
+        const r = await apiFetch(`${API_URL}/clientes/`);
+        if (r.ok) setClientes(await r.json());
+      } catch { /* ignore */ }
+    })();
+    // Si no hay referencias seleccionadas pero sí grupos, marcar grupo por defecto
+    if (refs.length === 0 && grupos.length > 0) { setUsarRef(false); setUsarGrupo(true); }
+  }, []);
+
+  const consultar = async () => {
+    const items = [];
+    if (usarRef) refs.forEach(r => items.push({ tipo: "referencia", valor: r }));
+    if (usarGrupo) grupos.forEach(g => items.push({ tipo: "grupo", valor: g }));
+    if (items.length === 0) {
+      setStatus && setStatus("Marca al menos referencia o grupo de descuento", "error");
+      return;
+    }
+    setConsultando(true);
+    setStatus && setStatus("Consultando histórico de descuentos...", "working");
+    try {
+      const filas = [];
+      for (const it of items) {
+        const params = new URLSearchParams();
+        if (it.tipo === "referencia") params.set("referencia", it.valor);
+        else params.set("grupodescuento", it.valor);
+        if (idcliente) params.set("idcliente", idcliente);
+        params.set("limite", "5");
+        const r = await apiFetch(`${API_URL}/descuentos/historico?${params.toString()}`);
+        const data = r.ok ? await r.json() : [];
+        filas.push({ ...it, presupuestos: data });
+      }
+      setResultado({ filas });
+      setStatus && setStatus("Histórico cargado", "success");
+    } catch (e) {
+      setStatus && setStatus("Error consultando histórico: " + e.message, "error");
+    } finally {
+      setConsultando(false);
+    }
+  };
+
+  const fmtNum = (n) => (Number(n) || 0).toLocaleString("es-ES", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const fmtFechaCorta = (f) => f ? new Date(f).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit", year: "2-digit" }) : "—";
+  const precioUnit = (p) => {
+    // Prioriza el neto unitario; si no, calcula desde pvp y dto
+    if (p.precionetounitario != null) return Number(p.precionetounitario);
+    if (p.precionetounitario2 != null) return Number(p.precionetounitario2);
+    const pvp = Number(p.pvp) || 0; const dto = Number(p.dtoaplicado) || 0;
+    return pvp * (1 - dto / 100);
+  };
+
+  // Nº máximo de columnas de presupuesto entre todas las filas (hasta 5)
+  const maxCols = resultado ? Math.max(0, ...resultado.filas.map(f => f.presupuestos.length)) : 0;
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }} onClick={onClose}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "96%", maxWidth: 1000, maxHeight: "90vh", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid #e5e5e5" }}>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#171717", display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <Icon as={TrendingUp} size={18} color="#7c3aed" /> Histórico de Descuentos
+          </h2>
+          <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "#94a3b8", display: "inline-flex" }}>
+            <Icon as={X} size={18} />
+          </button>
+        </div>
+
+        {/* Controles */}
+        <div style={{ display: "flex", gap: 16, alignItems: "flex-end", marginBottom: 14, flexWrap: "wrap" }}>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>Cliente</label>
+            <select value={idcliente} onChange={e => setIdcliente(e.target.value)}
+              style={{ padding: "6px 10px", border: "1px solid #d4d4d4", borderRadius: 6, fontSize: 12, background: "#fff", minWidth: 240 }}>
+              <option value="">— Todos los clientes —</option>
+              {clientes.map(c => (
+                <option key={c.id} value={c.id}>{c.nombrecomun || c.razonsocial}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>Consultar por</label>
+            <div style={{ display: "flex", gap: 14 }}>
+              <label style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 5, cursor: refs.length ? "pointer" : "not-allowed", color: refs.length ? "#171717" : "#cbd5e1" }}>
+                <input type="checkbox" checked={usarRef} disabled={refs.length === 0} onChange={e => setUsarRef(e.target.checked)} />
+                Referencia ({refs.length})
+              </label>
+              <label style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 5, cursor: grupos.length ? "pointer" : "not-allowed", color: grupos.length ? "#171717" : "#cbd5e1" }}>
+                <input type="checkbox" checked={usarGrupo} disabled={grupos.length === 0} onChange={e => setUsarGrupo(e.target.checked)} />
+                Grupo descuento ({grupos.length})
+              </label>
+            </div>
+          </div>
+          <button onClick={consultar} disabled={consultando}
+            style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: consultando ? "#cbd5e1" : "#7c3aed", color: "#fff", cursor: consultando ? "default" : "pointer", fontSize: 12, fontWeight: 600 }}>
+            <BtnContent icon={consultando ? RefreshCw : Search} iconColor="#fff">{consultando ? "Consultando..." : "Consultar"}</BtnContent>
+          </button>
+        </div>
+
+        {/* Resultado */}
+        <div style={{ flex: 1, overflow: "auto", border: "1px solid #e2e8f0", borderRadius: 8 }}>
+          {!resultado ? (
+            <div style={{ padding: 40, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
+              Elige el cliente y qué consultar, y pulsa <strong>Consultar</strong>.
+            </div>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+              <thead style={{ position: "sticky", top: 0, background: "#f8fafc", zIndex: 1 }}>
+                <tr>
+                  <th style={{ padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 700, borderBottom: "1px solid #e2e8f0", borderRight: "2px solid #e2e8f0", whiteSpace: "nowrap", position: "sticky", left: 0, background: "#f8fafc" }}>Referencia / Grupo</th>
+                  {Array.from({ length: maxCols }).map((_, i) => (
+                    <th key={i} style={{ padding: "6px 10px", textAlign: "center", color: "#475569", fontWeight: 600, borderBottom: "1px solid #e2e8f0", borderRight: "1px solid #f1f5f9", whiteSpace: "nowrap", minWidth: 130 }}>
+                      Presupuesto {i + 1}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {resultado.filas.map((f, fi) => (
+                  <tr key={fi} style={{ borderBottom: "1px solid #f1f5f9", background: fi % 2 === 0 ? "#fff" : "#fafafa" }}>
+                    <td style={{ padding: "8px 10px", borderRight: "2px solid #e2e8f0", whiteSpace: "nowrap", position: "sticky", left: 0, background: fi % 2 === 0 ? "#fff" : "#fafafa" }}>
+                      <div style={{ fontWeight: 600, color: "#1e3a5f" }}>{f.valor}</div>
+                      <div style={{ fontSize: 10, color: "#94a3b8" }}>{f.tipo === "referencia" ? "Referencia" : "Grupo dto."}</div>
+                    </td>
+                    {Array.from({ length: maxCols }).map((_, ci) => {
+                      const p = f.presupuestos[ci];
+                      if (!p) return <td key={ci} style={{ padding: "6px 10px", textAlign: "center", color: "#cbd5e1", borderRight: "1px solid #f1f5f9" }}>—</td>;
+                      return (
+                        <td key={ci} style={{ padding: "6px 10px", textAlign: "center", borderRight: "1px solid #f1f5f9", verticalAlign: "top" }}>
+                          <div style={{ fontSize: 10, color: "#64748b", fontWeight: 600, whiteSpace: "nowrap" }} title={`${p.cliente_nombre || p.cliente_razonsocial || ""}`}>
+                            {p.numerocompleto || p.numero}{p.revision ? `·${p.revision}` : ""}
+                          </div>
+                          <div style={{ fontSize: 9, color: "#94a3b8", marginBottom: 3 }}>{fmtFechaCorta(p.fecha)}</div>
+                          <div style={{ fontWeight: 700, color: "#7c3aed" }}>{fmtNum(p.dtoaplicado)}%</div>
+                          <div style={{ color: "#171717" }}>{fmtNum(precioUnit(p))} €</div>
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+                {resultado.filas.every(f => f.presupuestos.length === 0) && (
+                  <tr><td colSpan={maxCols + 1} style={{ padding: 30, textAlign: "center", color: "#94a3b8" }}>No se encontraron presupuestos para la selección.</td></tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14, paddingTop: 12, borderTop: "1px solid #e2e8f0" }}>
+          <button onClick={onClose} style={{ padding: "7px 18px", borderRadius: 6, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 12 }}>Cerrar</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Diálogo Gestionar Estrategias de Descuento ──
 // Lista de estrategias (tabla descuentos) + su detalle (detalledescuentos con grupo descuento).
 // Permite consultar, crear, editar, borrar y aplicar la estrategia al presupuesto.
@@ -11235,6 +11404,8 @@ function AppInner() {
   const [showImportar, setShowImportar] = useState(false);
   const [showDescuentos, setShowDescuentos] = useState(false);
   const [showEstrategias, setShowEstrategias] = useState(false);
+  const [showHistDesc, setShowHistDesc] = useState(false);
+  const [histDescDatos, setHistDescDatos] = useState({ refs: [], grupos: [] });
   const [showLeer, setShowLeer] = useState(false);
   const [showClientes, setShowClientes] = useState(false);
   const [showContactos, setShowContactos] = useState(false);
@@ -11664,6 +11835,31 @@ function AppInner() {
     if (action === "Importar") { setShowImportar(true); setStatus("Abriendo diálogo de importación", "info"); return; }
     if (action === "AplicarDescuentos") { setShowDescuentos(true); setStatus("Abriendo gestor de descuentos por grupo descuento", "info"); return; }
     if (action === "GestionarEstrategias") { setShowEstrategias(true); setStatus("Cargando estrategias de descuento desde la base de datos...", "working"); return; }
+    if (action === "HistoricoDescuentos") {
+      // Recopilar referencias y grupos de descuento de las filas seleccionadas (rectángulo azul / celda activa)
+      const idsSel = new Set();
+      if (selectionRange) {
+        const r1 = Math.min(selectionRange.startRowIdx, selectionRange.endRowIdx);
+        const r2 = Math.max(selectionRange.startRowIdx, selectionRange.endRowIdx);
+        for (let i = r1; i <= r2; i++) { if (rows[i]) idsSel.add(rows[i].id); }
+      } else if (selectedCell) {
+        idsSel.add(selectedCell.rowId);
+      }
+      if (idsSel.size === 0) {
+        setStatus("Selecciona las celdas (rectángulo azul) de las filas a consultar", "error");
+        return;
+      }
+      const sel = rows.filter(r => idsSel.has(r.id));
+      const refs = [...new Set(sel.map(r => (r.referencia || "").trim()).filter(Boolean))];
+      const grupos = [...new Set(sel.map(r => (r.grupodescuento || "").trim()).filter(Boolean))];
+      if (refs.length === 0 && grupos.length === 0) {
+        setStatus("Las filas seleccionadas no tienen referencia ni grupo de descuento", "error");
+        return;
+      }
+      setHistDescDatos({ refs, grupos });
+      setShowHistDesc(true);
+      return;
+    }
     if (action === "LeerPresupuestos") { setShowLeer(true); setStatus("Cargando lista de presupuestos desde la base de datos...", "working"); return; }
     if (action === "GestionarClientes") { setShowClientes(true); setStatus("Cargando lista de clientes desde la base de datos...", "working"); return; }
     if (action === "GestionarContactos") { setShowContactos(true); setStatus("Cargando lista de contactos desde la base de datos...", "working"); return; }
@@ -12667,7 +12863,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.36.0 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.37.0 (14 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -12981,7 +13177,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.36.0 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.37.0 (14 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
@@ -14592,6 +14788,14 @@ function AppInner() {
             setSelectedCell(null);
             nextId.current = nextBlankId;
           }}
+        />
+      )}
+      {showHistDesc && (
+        <HistoricoDescuentosDialog
+          refs={histDescDatos.refs}
+          grupos={histDescDatos.grupos}
+          setStatus={setStatus}
+          onClose={() => setShowHistDesc(false)}
         />
       )}
       {showEstrategias && (
