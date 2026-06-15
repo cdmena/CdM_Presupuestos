@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback, useEffect, Component } from "react";
 // ─────────────────────────────────────────────────────────────────────
 // Componente Presupuestos
-// Versión: v2.37.0 (14 Junio 2026)
+// Versión: v2.39.1 (15 Junio 2026)
 //
 // Convención SemVer:
 //   - MAJOR: cambios incompatibles
@@ -9,6 +9,12 @@ import { useState, useRef, useCallback, useEffect, Component } from "react";
 //   - PATCH: corrección de errores
 //
 // Histórico reciente:
+//   v2.39.1 (15 Junio 2026) - Histórico Descuentos: ahora hasta los últimos 20 presupuestos (antes 5), con scroll horizontal
+//   v2.39.0 (15 Junio 2026) - Histórico Descuentos: nueva 2ª columna "Resumen" (descuento mayor, media y nº de presupuestos). Las dos primeras columnas quedan fijas al hacer scroll horizontal
+//   v2.38.0 (15 Junio 2026) - Histórico Descuentos: filtro de periodo (radio Todos / Desde la fecha con calendario). En grupos no se muestra precio unitario y los descuentos distintos del grupo en un mismo presupuesto se muestran juntos en la celda (deduplicados); referencias mantienen dto + precio
+//   v2.37.3 (15 Junio 2026) - Histórico Descuentos: la revisión se muestra como "R{n}" e incluye R0 (antes "·n" y ocultaba la revisión 0)
+//   v2.37.2 (15 Junio 2026) - Diálogo Asistente de opciones redimensionable (resize: both)
+//   v2.37.1 (15 Junio 2026) - Diálogo Histórico Descuentos redimensionable (resize: both, arrastrando la esquina inferior derecha) como otros diálogos
 //   v2.37.0 (14 Junio 2026) - Descuentos → Histórico Descuentos: diálogo que, para las referencias/grupos de las celdas seleccionadas (rectángulo azul) y filtro de cliente (o todos), muestra dto y precio unitario en los últimos 5 presupuestos que los contienen (cabecera: nº completo + fecha). Backend: GET /descuentos/historico
 //   v2.36.0 (14 Junio 2026) - Diálogo Asistente de opciones: columnas redimensionables (useColumnResize) y ordenación por columna (useTableSort) incluida la columna Producto
 //   v2.35.2 (14 Junio 2026) - El botón "Ver / editar tabla de opciones" queda dentro del mismo rectángulo del apartado de importación de asistentesopciones, separado por una línea (ImportTablaSection ahora admite children)
@@ -7368,7 +7374,7 @@ function AsistenteOpcionesDialog({ onClose, setStatus }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }} onClick={onClose}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "95%", maxWidth: 940, maxHeight: "88vh", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "95%", maxWidth: 940, height: "85vh", maxHeight: "92vh", minWidth: 560, minHeight: 360, overflow: "auto", resize: "both", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid #e5e5e5" }}>
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#171717", display: "inline-flex", alignItems: "center", gap: 8 }}>
             <Icon as={Bot} size={18} color="#0891b2" /> Asistente de opciones
@@ -10115,7 +10121,7 @@ function AsistenteReferenciasDialog({ onClose, onInsertar, setStatus }) {
 
 // ── Diálogo Histórico de Descuentos ──
 // Muestra, para las referencias y/o grupos de descuento seleccionados, el descuento
-// y precio unitario en los últimos 5 presupuestos que los contienen.
+// y precio unitario en los últimos 20 presupuestos que los contienen.
 function HistoricoDescuentosDialog({ refs, grupos, onClose, setStatus }) {
   const [clientes, setClientes] = useState([]);
   const [idcliente, setIdcliente] = useState(""); // "" = todos
@@ -10123,6 +10129,8 @@ function HistoricoDescuentosDialog({ refs, grupos, onClose, setStatus }) {
   const [usarGrupo, setUsarGrupo] = useState(false);
   const [consultando, setConsultando] = useState(false);
   const [resultado, setResultado] = useState(null); // { filas: [{ tipo, valor, presupuestos: [...] }] }
+  const [modoFecha, setModoFecha] = useState("todos"); // "todos" | "desde"
+  const [desde, setDesde] = useState(""); // YYYY-MM-DD
 
   useEffect(() => {
     // Cargar clientes para el filtro
@@ -10144,6 +10152,10 @@ function HistoricoDescuentosDialog({ refs, grupos, onClose, setStatus }) {
       setStatus && setStatus("Marca al menos referencia o grupo de descuento", "error");
       return;
     }
+    if (modoFecha === "desde" && !desde) {
+      setStatus && setStatus("Selecciona una fecha o elige 'Todos los presupuestos'", "error");
+      return;
+    }
     setConsultando(true);
     setStatus && setStatus("Consultando histórico de descuentos...", "working");
     try {
@@ -10153,7 +10165,8 @@ function HistoricoDescuentosDialog({ refs, grupos, onClose, setStatus }) {
         if (it.tipo === "referencia") params.set("referencia", it.valor);
         else params.set("grupodescuento", it.valor);
         if (idcliente) params.set("idcliente", idcliente);
-        params.set("limite", "5");
+        if (modoFecha === "desde" && desde) params.set("desde", desde);
+        params.set("limite", "20");
         const r = await apiFetch(`${API_URL}/descuentos/historico?${params.toString()}`);
         const data = r.ok ? await r.json() : [];
         filas.push({ ...it, presupuestos: data });
@@ -10180,9 +10193,27 @@ function HistoricoDescuentosDialog({ refs, grupos, onClose, setStatus }) {
   // Nº máximo de columnas de presupuesto entre todas las filas (hasta 5)
   const maxCols = resultado ? Math.max(0, ...resultado.filas.map(f => f.presupuestos.length)) : 0;
 
+  // Resumen de una fila: descuento mayor, media de descuentos y nº de presupuestos.
+  // Para referencias toma el dto de cada presupuesto; para grupos, todos los descuentos distintos.
+  const resumenFila = (f) => {
+    const dtos = [];
+    f.presupuestos.forEach(p => {
+      if (f.tipo === "grupo") {
+        (p.descuentos && p.descuentos.length ? p.descuentos : [p.dtoaplicado]).forEach(d => dtos.push(Number(d) || 0));
+      } else {
+        dtos.push(Number(p.dtoaplicado) || 0);
+      }
+    });
+    const nPresup = f.presupuestos.length;
+    if (dtos.length === 0) return { mayor: null, media: null, nPresup };
+    const mayor = Math.max(...dtos);
+    const media = dtos.reduce((s, d) => s + d, 0) / dtos.length;
+    return { mayor, media, nPresup };
+  };
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 99999 }} onClick={onClose}>
-      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "96%", maxWidth: 1000, maxHeight: "90vh", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
+      <div style={{ background: "#fff", borderRadius: 12, padding: "1.5rem 2rem", width: "96%", maxWidth: 1000, height: "85vh", maxHeight: "92vh", minWidth: 560, minHeight: 360, overflow: "auto", resize: "both", boxShadow: "0 20px 60px rgba(0,0,0,0.2)", display: "flex", flexDirection: "column" }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid #e5e5e5" }}>
           <h2 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#171717", display: "inline-flex", alignItems: "center", gap: 8 }}>
             <Icon as={TrendingUp} size={18} color="#7c3aed" /> Histórico de Descuentos
@@ -10217,6 +10248,22 @@ function HistoricoDescuentosDialog({ refs, grupos, onClose, setStatus }) {
               </label>
             </div>
           </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: "#64748b", display: "block", marginBottom: 4 }}>Periodo</label>
+            <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
+              <label style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
+                <input type="radio" name="modoFecha" checked={modoFecha === "todos"} onChange={() => setModoFecha("todos")} />
+                Todos los presupuestos
+              </label>
+              <label style={{ fontSize: 12, display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
+                <input type="radio" name="modoFecha" checked={modoFecha === "desde"} onChange={() => setModoFecha("desde")} />
+                Desde la fecha
+              </label>
+              <input type="date" value={desde}
+                onChange={e => { setDesde(e.target.value); if (e.target.value) setModoFecha("desde"); }}
+                style={{ padding: "5px 8px", border: "1px solid #d4d4d4", borderRadius: 6, fontSize: 12, background: modoFecha === "desde" ? "#fff" : "#f8fafc", color: modoFecha === "desde" ? "#171717" : "#94a3b8" }} />
+            </div>
+          </div>
           <button onClick={consultar} disabled={consultando}
             style={{ padding: "8px 18px", borderRadius: 6, border: "none", background: consultando ? "#cbd5e1" : "#7c3aed", color: "#fff", cursor: consultando ? "default" : "pointer", fontSize: 12, fontWeight: 600 }}>
             <BtnContent icon={consultando ? RefreshCw : Search} iconColor="#fff">{consultando ? "Consultando..." : "Consultar"}</BtnContent>
@@ -10233,7 +10280,8 @@ function HistoricoDescuentosDialog({ refs, grupos, onClose, setStatus }) {
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
               <thead style={{ position: "sticky", top: 0, background: "#f8fafc", zIndex: 1 }}>
                 <tr>
-                  <th style={{ padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 700, borderBottom: "1px solid #e2e8f0", borderRight: "2px solid #e2e8f0", whiteSpace: "nowrap", position: "sticky", left: 0, background: "#f8fafc" }}>Referencia / Grupo</th>
+                  <th style={{ padding: "8px 10px", textAlign: "left", color: "#171717", fontWeight: 700, borderBottom: "1px solid #e2e8f0", borderRight: "1px solid #e2e8f0", whiteSpace: "nowrap", position: "sticky", left: 0, width: 180, minWidth: 180, background: "#f8fafc", zIndex: 2 }}>Referencia / Grupo</th>
+                  <th style={{ padding: "8px 10px", textAlign: "center", color: "#171717", fontWeight: 700, borderBottom: "1px solid #e2e8f0", borderRight: "2px solid #e2e8f0", whiteSpace: "nowrap", position: "sticky", left: 180, width: 150, minWidth: 150, background: "#f8fafc", zIndex: 2 }}>Resumen</th>
                   {Array.from({ length: maxCols }).map((_, i) => (
                     <th key={i} style={{ padding: "6px 10px", textAlign: "center", color: "#475569", fontWeight: 600, borderBottom: "1px solid #e2e8f0", borderRight: "1px solid #f1f5f9", whiteSpace: "nowrap", minWidth: 130 }}>
                       Presupuesto {i + 1}
@@ -10242,11 +10290,25 @@ function HistoricoDescuentosDialog({ refs, grupos, onClose, setStatus }) {
                 </tr>
               </thead>
               <tbody>
-                {resultado.filas.map((f, fi) => (
-                  <tr key={fi} style={{ borderBottom: "1px solid #f1f5f9", background: fi % 2 === 0 ? "#fff" : "#fafafa" }}>
-                    <td style={{ padding: "8px 10px", borderRight: "2px solid #e2e8f0", whiteSpace: "nowrap", position: "sticky", left: 0, background: fi % 2 === 0 ? "#fff" : "#fafafa" }}>
+                {resultado.filas.map((f, fi) => {
+                  const bg = fi % 2 === 0 ? "#fff" : "#fafafa";
+                  const res = resumenFila(f);
+                  return (
+                  <tr key={fi} style={{ borderBottom: "1px solid #f1f5f9", background: bg }}>
+                    <td style={{ padding: "8px 10px", borderRight: "1px solid #e2e8f0", whiteSpace: "nowrap", position: "sticky", left: 0, width: 180, minWidth: 180, background: bg, zIndex: 1 }}>
                       <div style={{ fontWeight: 600, color: "#1e3a5f" }}>{f.valor}</div>
                       <div style={{ fontSize: 10, color: "#94a3b8" }}>{f.tipo === "referencia" ? "Referencia" : "Grupo dto."}</div>
+                    </td>
+                    <td style={{ padding: "6px 10px", borderRight: "2px solid #e2e8f0", whiteSpace: "nowrap", position: "sticky", left: 180, width: 150, minWidth: 150, background: bg, zIndex: 1, fontSize: 10, lineHeight: 1.5 }}>
+                      {res.mayor == null ? (
+                        <span style={{ color: "#cbd5e1" }}>—</span>
+                      ) : (
+                        <>
+                          <div><span style={{ color: "#64748b" }}>Mayor:</span> <strong style={{ color: "#7c3aed" }}>{fmtNum(res.mayor)}%</strong></div>
+                          <div><span style={{ color: "#64748b" }}>Media:</span> <strong style={{ color: "#7c3aed" }}>{fmtNum(res.media)}%</strong></div>
+                          <div><span style={{ color: "#64748b" }}>Presup.:</span> <strong style={{ color: "#1e3a5f" }}>{res.nPresup}</strong></div>
+                        </>
+                      )}
                     </td>
                     {Array.from({ length: maxCols }).map((_, ci) => {
                       const p = f.presupuestos[ci];
@@ -10254,18 +10316,29 @@ function HistoricoDescuentosDialog({ refs, grupos, onClose, setStatus }) {
                       return (
                         <td key={ci} style={{ padding: "6px 10px", textAlign: "center", borderRight: "1px solid #f1f5f9", verticalAlign: "top" }}>
                           <div style={{ fontSize: 10, color: "#64748b", fontWeight: 600, whiteSpace: "nowrap" }} title={`${p.cliente_nombre || p.cliente_razonsocial || ""}`}>
-                            {p.numerocompleto || p.numero}{p.revision ? `·${p.revision}` : ""}
+                            {p.numerocompleto || p.numero}R{p.revision ?? 0}
                           </div>
                           <div style={{ fontSize: 9, color: "#94a3b8", marginBottom: 3 }}>{fmtFechaCorta(p.fecha)}</div>
-                          <div style={{ fontWeight: 700, color: "#7c3aed" }}>{fmtNum(p.dtoaplicado)}%</div>
-                          <div style={{ color: "#171717" }}>{fmtNum(precioUnit(p))} €</div>
+                          {f.tipo === "grupo" ? (
+                            // Grupo: descuentos distintos (sin precio). Si hay varios, juntos.
+                            <div style={{ fontWeight: 700, color: "#7c3aed" }}>
+                              {(p.descuentos && p.descuentos.length ? p.descuentos : [p.dtoaplicado]).map(d => `${fmtNum(d)}%`).join(" / ")}
+                            </div>
+                          ) : (
+                            // Referencia: descuento + precio unitario
+                            <>
+                              <div style={{ fontWeight: 700, color: "#7c3aed" }}>{fmtNum(p.dtoaplicado)}%</div>
+                              <div style={{ color: "#171717" }}>{fmtNum(precioUnit(p))} €</div>
+                            </>
+                          )}
                         </td>
                       );
                     })}
                   </tr>
-                ))}
+                  );
+                })}
                 {resultado.filas.every(f => f.presupuestos.length === 0) && (
-                  <tr><td colSpan={maxCols + 1} style={{ padding: 30, textAlign: "center", color: "#94a3b8" }}>No se encontraron presupuestos para la selección.</td></tr>
+                  <tr><td colSpan={maxCols + 2} style={{ padding: 30, textAlign: "center", color: "#94a3b8" }}>No se encontraron presupuestos para la selección.</td></tr>
                 )}
               </tbody>
             </table>
@@ -12863,7 +12936,7 @@ function AppInner() {
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <button onClick={() => setVista("grid")} style={{ background: "#fff", border: "1px solid #d4d4d4", color: "#171717", borderRadius: 6, padding: "4px 12px", cursor: "pointer", fontSize: 12 }}><BtnContent icon={ArrowLeft}>← Volver</BtnContent></button>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={HelpCircle} size={18} color="#171717" /> Ayuda — Manual de uso</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.37.0 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.39.1 (15 Junio 2026)</span>
       </div>
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* ÁRBOL IZQUIERDA */}
@@ -13177,7 +13250,7 @@ function AppInner() {
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 13, color: "#1e293b", height: "100vh", display: "flex", flexDirection: "column", background: "#f8fafc" }}>
       <div style={{ background: "#f5f5f5", color: "#171717", padding: "8px 16px", display: "flex", alignItems: "center", gap: 12, flexShrink: 0, borderBottom: "1px solid #e5e5e5" }}>
         <span style={{ fontWeight: 700, fontSize: 15, display: "inline-flex", alignItems: "center", gap: 8 }}><Icon as={FileSpreadsheet} size={18} color="#171717" /> Presupuestos</span>
-        <span style={{ color: "#737373", fontSize: 12 }}>v2.37.0 (14 Junio 2026)</span>
+        <span style={{ color: "#737373", fontSize: 12 }}>v2.39.1 (15 Junio 2026)</span>
         <span
           onClick={() => handleAction("AplicarEstructura")}
           title="Pulsa para activar o desactivar la estructura"
